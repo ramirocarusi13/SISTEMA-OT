@@ -1,0 +1,41 @@
+services:
+  php-apache-environment:
+    container_name: app-ot
+    build: .
+    ports:
+      - 9050:80
+    depends_on:
+      - db
+
+  db:
+    container_name: db
+    image: mysql:latest
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+      MYSQL_DATABASE: ordenes_sar
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: admin
+    ports:
+      - "3306:3306"
+    # command: --default-authentication-plugin=mysql_native_password
+    volumes:
+        - ./sql:/docker-entrypoint-initdb.d
+        #- ./conf:/etc/mysql/conf.d
+        # - persistent:/var/lib/mysql
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: admin
+      PMA_PASSWORD: admin
+      # PMA_ARBITRARY: 1
+      # MYSQL_USERNAME: admin
+      # MYSQL_ROOT_PASSWORD: admin
+    ports:
+      - '8080:80'
+    depends_on:
+      - db

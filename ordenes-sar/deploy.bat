@@ -1,0 +1,2 @@
+git pull
+docker build . -t api-ot:latest && docker stop api-ot & docker rm api-ot & docker run -d -v ot_files:/var/www/html/public/storage/archivos --restart unless-stopped --name api-ot -p 8585:80 api-ot:latest
