@@ -7,6 +7,7 @@
 !.env.example
 !.env.*.example
 ordenes-sar/env
+ordenes-sar/.env
 ordenes-sar/.rnd
 
 # OS and editor files
@@ -32,8 +33,11 @@ ordenes-sar/public/storage/
 ordenes-sar/storage/*.key
 ordenes-sar/auth.json
 ordenes-sar/sql/*.sql
+ordenes-sar/storage/logs/
 
 # Frontend
 ot-front/node_modules/
 ot-front/dist/
 ot-front/dist-ssr/
+ot-front/.env
+ot-front/.env.*

@@ -1,0 +1,9 @@
+.git
+.env
+env
+.rnd
+sql
+vendor
+node_modules
+storage/logs/*.log
+*.log
