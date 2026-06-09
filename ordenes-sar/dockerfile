@@ -1,5 +1,5 @@
 # Use PHP with Apache as the base image
-FROM php:8.2-apache
+FROM php:8.2-apache-bullseye
 
 # Install Additional System Dependencies
 RUN apt-get update && apt-get install -y \
@@ -29,18 +29,18 @@ RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf
 
 #INSTALO DRIVER SQL
 ENV ACCEPT_EULA=Y
-RUN apt-get update && apt-get install -y gnupg2
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - 
-RUN curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list > /etc/apt/sources.list.d/mssql-release.list 
+RUN apt-get update && apt-get install -y gnupg2 curl apt-transport-https ca-certificates
+RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/11/prod bullseye main" > /etc/apt/sources.list.d/mssql-release.list
 RUN apt-get update 
 RUN ACCEPT_EULA=Y apt-get -y --no-install-recommends install msodbcsql17 unixodbc-dev 
-RUN pecl install sqlsrv
-RUN pecl install pdo_sqlsrv
+RUN pecl channel-update pecl.php.net
+RUN pecl install sqlsrv-5.12.0
+RUN pecl install pdo_sqlsrv-5.12.0
 RUN docker-php-ext-enable sqlsrv pdo_sqlsrv
 
 # Copy the application code
 COPY . /var/www/html
-COPY .env /var/www/html/.env
 
 # Set the working directory
 WORKDIR /var/www/html
@@ -64,7 +64,7 @@ RUN php artisan log-viewer:publish
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 RUN chown -R www-data:www-data /var/www/html/public
 
-RUN cd /var/www/html/public && mkdir storage && cd storage && mkdir archivos
+RUN mkdir -p /var/www/html/public/storage/archivos
 RUN chown -R www-data:www-data /var/www/html/public/storage/archivos
 
 CMD ["/usr/bin/supervisord", "-n"]

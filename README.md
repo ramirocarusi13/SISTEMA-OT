@@ -1,10 +1,23 @@
-# Sistema OT
+# SISTEMA-OT
 
-Monorepo para manejar el backend y frontend del sistema en un solo repositorio.
+Monorepo para el sistema de ordenes de trabajo.
 
-## Estructura
+- `ot-front`: frontend React/Vite servido con Nginx.
+- `ordenes-sar`: backend Laravel servido con Apache/PHP.
 
-- `ordenes-sar/`: backend Laravel.
-- `ot-front/`: frontend Vite/React.
+## Deploy Docker
 
-Los archivos `.env` no se versionan. Usar los `.env.example` o crear archivos locales segun corresponda.
+El deploy unificado actualiza el repo, reconstruye y reinicia frontend y backend juntos.
+
+Antes de desplegar, el servidor debe tener `ordenes-sar/.env` con la configuracion real de la base y correo. Ese archivo no se versiona.
+
+```bat
+deploy.bat
+```
+
+Servicios publicados:
+
+- Frontend: `http://localhost:9050`
+- Backend API directa: `http://localhost:8585/api`
+
+El frontend proxya `/api` hacia el backend dentro de Docker, por eso no necesita apuntar a una IP fija.

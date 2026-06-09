@@ -1,0 +1,29 @@
+services:
+  backend:
+    container_name: api-ot
+    build:
+      context: ./ordenes-sar
+      dockerfile: dockerfile
+    env_file:
+      - ./ordenes-sar/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8585:80"
+    restart: unless-stopped
+    volumes:
+      - sistema_ot_archivos:/var/www/html/public/storage/archivos
+
+  frontend:
+    container_name: ot-front
+    build:
+      context: ./ot-front
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "9050:80"
+    restart: unless-stopped
+
+volumes:
+  sistema_ot_archivos:

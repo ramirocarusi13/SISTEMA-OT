@@ -12,6 +12,8 @@ FROM base AS prod-deps
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --no-frozen-lockfile
 
 FROM base AS build
+ARG VITE_API=/api/
+ENV VITE_API=$VITE_API
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --no-frozen-lockfile
 RUN pnpm run build --mode production
 
