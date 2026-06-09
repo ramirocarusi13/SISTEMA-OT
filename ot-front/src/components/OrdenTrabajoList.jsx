@@ -26,7 +26,9 @@ const OrdenTrabajoList = () => {
     const [selectedOrdenIdAgregar, setSelectedOrdenIdAgregar] = useState(null);
     const [selectedOrderId, setSelectedOrderId] = useState(null);
     const [ordenes, setOrdenes] = useState([]);
+    const [ordenesSinFiltro, setOrdenesSinFiltro] = useState([]);
     const [selectedDepartamento, setSelectedDepartamento] = useState(null);
+    const [selectedUsuarioMantenimiento, setSelectedUsuarioMantenimiento] = useState(null);
     const [selectedDateRange, setSelectedDateRange] = useState([]);
     const [departamentos, setDepartamentos] = useState([]);
     const [file, setFile] = useState(null);
@@ -49,6 +51,7 @@ const OrdenTrabajoList = () => {
     const [isOpenAsignarModal, setIsOpenAsignarModal] = useState(false);
     const [ordenIdAsignar, setOrdenIdAsignar] = useState(null);
     const [usuariosMantenimiento, setUsuariosMantenimiento] = useState([]);
+    const [usuariosMantenimientoFiltro, setUsuariosMantenimientoFiltro] = useState([]);
     const [fechaEstimacion, setFechaEstimacion] = useState(null);
     const [usuarioSeleccionado, setUsuarioSeleccionado] = useState(null);
     const [isModalVisible, setIsModalVisible] = useState(false);
@@ -137,7 +140,11 @@ const OrdenTrabajoList = () => {
             queryParams.append('departamento_id', selectedDepartamento);
         }
 
-        if (selectedDateRange.length === 2) {
+        if (selectedUsuarioMantenimiento && selectedUsuarioMantenimiento !== 'todos') {
+            queryParams.append('usuario_mantenimiento_id', selectedUsuarioMantenimiento);
+        }
+
+        if (selectedDateRange?.length === 2) {
             queryParams.append('fecha_inicio', selectedDateRange[0].format('YYYY-MM-DD'));
             queryParams.append('fecha_fin', selectedDateRange[1].format('YYYY-MM-DD'));
         }
@@ -268,6 +275,25 @@ const OrdenTrabajoList = () => {
             });
     };
 
+    const fetchUsuariosMantenimientoFiltro = async () => {
+        try {
+            const token = await getItem();
+            const data = await fetch(`${APIURI}usuarios-mantenimiento`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Accept': 'application/json',
+                },
+            });
+
+            const response = await data.json();
+            setUsuariosMantenimientoFiltro(
+                Array.isArray(response) ? response.filter(p => p.rol === 'group_leader') : []
+            );
+        } catch {
+            setUsuariosMantenimientoFiltro([]);
+        }
+    };
+
     // const fetchDepartamentos = async () => {
     //     try {
     //         const token = await getItem();
@@ -317,6 +343,7 @@ const OrdenTrabajoList = () => {
         };
 
         fetchDepartamentos();
+        fetchUsuariosMantenimientoFiltro();
         FetchData();
     }, []);
 
@@ -354,6 +381,7 @@ const OrdenTrabajoList = () => {
         console.log(res)
 
         setOrdenes(res);
+        setOrdenesSinFiltro(res);
 
         setIsLoading(false)
 
@@ -709,7 +737,32 @@ const OrdenTrabajoList = () => {
     };
 
     const ordenesList = Array.isArray(ordenes) ? ordenes : [];
+    const ordenesSinFiltroList = Array.isArray(ordenesSinFiltro) ? ordenesSinFiltro : [];
     const countByEstado = (estado) => ordenesList.filter((orden) => orden.estado === estado).length;
+    const fechaInicioConteo = selectedDateRange?.length === 2
+        ? moment(selectedDateRange[0].format('YYYY-MM-DD')).startOf('day')
+        : null;
+    const fechaFinConteo = selectedDateRange?.length === 2
+        ? moment(selectedDateRange[1].format('YYYY-MM-DD')).endOf('day')
+        : null;
+    const ordenesParaConteoMantenimiento = ordenesSinFiltroList.filter((orden) => {
+        const coincideDepartamento = !selectedDepartamento ||
+            selectedDepartamento === 'todas' ||
+            parseInt(orden.departamento_id) === parseInt(selectedDepartamento);
+        const coincideFecha = fechaInicioConteo && fechaFinConteo
+            ? moment(orden.created_at).isBetween(fechaInicioConteo, fechaFinConteo, null, '[]')
+            : true;
+
+        return coincideDepartamento && coincideFecha;
+    });
+    const cantidadAsignadaPorMantenimiento = (usuarioMantenimientoId) =>
+        ordenesParaConteoMantenimiento.filter((orden) =>
+            orden.estado === 'asignada' &&
+            parseInt(orden.usuario_mantenimiento_id) === parseInt(usuarioMantenimientoId)
+        ).length;
+    const totalAsignadasMantenimiento = ordenesParaConteoMantenimiento.filter((orden) =>
+        orden.estado === 'asignada' && orden.usuario_mantenimiento_id
+    ).length;
     const tableRowClassName = (record, index) => (index % 2 === 0 ? 'ot-table-row-even' : 'ot-table-row-odd');
 
     return (
@@ -851,9 +904,27 @@ const OrdenTrabajoList = () => {
                             </Select>
                         )}
 
+                        {usuario?.rol === 'gerente' && parseInt(usuario?.departamento_id) === 2 && (
+                            <Select
+                                placeholder="Mantenimiento a cargo"
+                                style={{ width: 240 }}
+                                onChange={(value) => setSelectedUsuarioMantenimiento(value)}
+                                value={selectedUsuarioMantenimiento}
+                            >
+                                <Select.Option value="todos">
+                                    Todos los GL ({totalAsignadasMantenimiento} OT asignadas)
+                                </Select.Option>
+                                {usuariosMantenimientoFiltro.map((usuarioMantenimiento) => (
+                                    <Select.Option key={usuarioMantenimiento.id} value={usuarioMantenimiento.id}>
+                                        {usuarioMantenimiento.name} ({cantidadAsignadaPorMantenimiento(usuarioMantenimiento.id)} OT asignadas)
+                                    </Select.Option>
+                                ))}
+                            </Select>
+                        )}
+
                         {/* Selector de Rango de Fechas */}
                         <DatePicker.RangePicker
-                            onChange={(dates) => setSelectedDateRange(dates)}
+                            onChange={(dates) => setSelectedDateRange(dates || [])}
                             format="YYYY-MM-DD"
                         />
 

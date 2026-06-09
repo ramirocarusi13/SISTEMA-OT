@@ -32,6 +32,7 @@ class OrdenTrabajoController extends Controller
 
         // Obtener filtros desde la solicitud
         $filtroDepartamento = $request->input('departamento_id');
+        $filtroUsuarioMantenimiento = $request->input('usuario_mantenimiento_id');
         $filtroFechaInicio = $request->input('fecha_inicio');
         $filtroFechaFin = $request->input('fecha_fin');
 
@@ -55,6 +56,10 @@ class OrdenTrabajoController extends Controller
             $query->whereHas('creador.departamento', function ($q) use ($filtroDepartamento) {
                 $q->where('id', $filtroDepartamento);
             });
+        }
+
+        if (!empty($filtroUsuarioMantenimiento)) {
+            $query->where('usuario_mantenimiento_id', $filtroUsuarioMantenimiento);
         }
 
         // Aplicar filtro por rango de fechas si existen
