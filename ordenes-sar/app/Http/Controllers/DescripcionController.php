@@ -47,22 +47,55 @@ class DescripcionController extends Controller
             abort(404);
         }
 
-        $paths = [
-            public_path('storage/archivos/' . $archivo),
-            storage_path('app/public/archivos/' . $archivo),
+        $directories = [
+            public_path('storage/archivos'),
+            storage_path('app/public/archivos'),
         ];
 
-        foreach ($paths as $path) {
-            if (File::exists($path)) {
-                return response()->file($path, [
+        $candidates = array_unique([
+            $archivo,
+            rawurlencode($archivo),
+            str_replace(' ', '%20', $archivo),
+            str_replace('%20', ' ', $archivo),
+            str_replace('+', ' ', $archivo),
+        ]);
+
+        foreach ($directories as $directory) {
+            foreach ($candidates as $candidate) {
+                $path = $directory . DIRECTORY_SEPARATOR . $candidate;
+
+                if (File::exists($path)) {
+                    return response()->file($path, [
+                        'Cache-Control' => 'private, max-age=3600',
+                    ]);
+                }
+            }
+        }
+
+        $normalizedRequested = $this->normalizeArchivoName($archivo);
+
+        foreach ($directories as $directory) {
+            if (!File::isDirectory($directory)) {
+                continue;
+            }
+
+            foreach (File::files($directory) as $file) {
+                if ($this->normalizeArchivoName($file->getFilename()) === $normalizedRequested) {
+                    return response()->file($file->getPathname(), [
                     'Cache-Control' => 'private, max-age=3600',
                 ]);
+                }
             }
         }
 
         Log::warning("Archivo no encontrado: {$archivo}");
 
         abort(404);
+    }
+
+    private function normalizeArchivoName(string $name): string
+    {
+        return mb_strtolower(rawurldecode(str_replace('+', ' ', $name)));
     }
 
     /**
