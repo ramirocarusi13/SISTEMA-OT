@@ -1,45 +1,137 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Spin, Image, Typography, Divider, notification } from 'antd';
+import { Modal, Spin, Image, Divider, notification } from 'antd';
 
-const APIURI = import.meta.env.VITE_API
+const APIURI = import.meta.env.VITE_API;
+const apiBaseUrl = new URL(APIURI, window.location.origin);
 
-const { Title } = Typography;
+const safeDecode = (value) => {
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        return value;
+    }
+};
+
+const getArchivoNombre = (value) => {
+    let archivo = String(value || '').trim();
+
+    if (!archivo) {
+        return '';
+    }
+
+    try {
+        if (/^https?:\/\//i.test(archivo)) {
+            archivo = new URL(archivo).pathname;
+        }
+    } catch {
+        // Mantiene el valor original si no es una URL valida.
+    }
+
+    archivo = archivo
+        .replace(/\\/g, '/')
+        .split('?')[0]
+        .split('#')[0]
+        .replace(/^(\/)?(public\/)?storage\/archivos\//, '');
+
+    return safeDecode(archivo.split('/').filter(Boolean).pop() || '');
+};
+
+const getApiArchivoUrl = (archivoNombre) =>
+    new URL(`archivos/${encodeURIComponent(archivoNombre)}`, apiBaseUrl.href).toString();
 
 export default function ModalMostrarFotoFinalizada({ isOpen, setIsOpen, idOrden }) {
     const [fotoFinalizada, setFotoFinalizada] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
-        if (isOpen && idOrden) {
-            setIsLoading(true);
+        if (!isOpen || !idOrden) {
+            return;
+        }
 
-            fetch(`${APIURI}ordenes-trabajo/${idOrden}/foto-finalizada`, {
-                headers: {
-                    Authorization: `Bearer ${localStorage.getItem('token')}`,
-                    Accept: 'application/json',
-                },
+        let cancelled = false;
+        let objectUrl = '';
+
+        setIsLoading(true);
+        setFotoFinalizada(null);
+
+        fetch(`${APIURI}ordenes-trabajo/${idOrden}/foto-finalizada`, {
+            headers: {
+                Authorization: `Bearer ${localStorage.getItem('token')}`,
+                Accept: 'application/json',
+            },
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                return response.json();
             })
-                .then((response) => response.json())
-                .then((data) => {
-                    console.log('Respuesta de la API:', data);
-                    if (data.foto_finalizada) {
-                        setFotoFinalizada(data.foto_finalizada);
-                    } else {
-                        notification.warning({
-                            message: 'Sin Foto',
-                            description: 'No se encontró ninguna foto finalizada para esta orden.',
-                        });
-                    }
-                })
-                .catch((error) => {
+            .then((data) => {
+                const archivoNombre = getArchivoNombre(data.foto_finalizada_nombre || data.foto_finalizada);
+
+                if (!archivoNombre) {
+                    notification.warning({
+                        message: 'Sin Foto',
+                        description: 'No se encontro ninguna foto finalizada para esta orden.',
+                    });
+                    return null;
+                }
+
+                return fetch(getApiArchivoUrl(archivoNombre), {
+                    headers: {
+                        Authorization: `Bearer ${localStorage.getItem('token')}`,
+                        Accept: 'image/*',
+                    },
+                });
+            })
+            .then((response) => {
+                if (!response) {
+                    return null;
+                }
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                return response.blob();
+            })
+            .then((blob) => {
+                if (!blob) {
+                    return;
+                }
+
+                objectUrl = URL.createObjectURL(blob);
+
+                if (cancelled) {
+                    URL.revokeObjectURL(objectUrl);
+                    return;
+                }
+
+                setFotoFinalizada(objectUrl);
+            })
+            .catch((error) => {
+                if (!cancelled) {
                     console.error('Error al cargar la foto finalizada:', error);
                     notification.error({
                         message: 'Error',
                         description: 'No se pudo cargar la foto finalizada.',
                     });
-                })
-                .finally(() => setIsLoading(false));
-        }
+                }
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setIsLoading(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+            }
+        };
     }, [isOpen, idOrden]);
 
     const handleClose = () => {
@@ -55,7 +147,6 @@ export default function ModalMostrarFotoFinalizada({ isOpen, setIsOpen, idOrden 
             footer={null}
             width={600}
         >
-            {/* Spinner de carga */}
             {isLoading ? (
                 <div className="flex items-center justify-center mt-10">
                     <Spin size="large" />
@@ -63,7 +154,6 @@ export default function ModalMostrarFotoFinalizada({ isOpen, setIsOpen, idOrden 
             ) : fotoFinalizada ? (
                 <div className="text-center">
                     <Divider style={{ marginBottom: 16 }} />
-                    {/* Muestra la foto finalizada */}
                     <Image
                         src={fotoFinalizada}
                         alt="Foto Finalizada"
@@ -73,7 +163,7 @@ export default function ModalMostrarFotoFinalizada({ isOpen, setIsOpen, idOrden 
                             borderRadius: '8px',
                             boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
                         }}
-                        preview={true}
+                        preview={{ src: fotoFinalizada }}
                     />
                 </div>
             ) : (

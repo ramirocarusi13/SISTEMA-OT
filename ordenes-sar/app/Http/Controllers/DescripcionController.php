@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Descripcion;
 use App\Support\ArchivoOrden;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 
 class DescripcionController extends Controller
@@ -36,6 +37,32 @@ class DescripcionController extends Controller
         });
 
         return response()->json($descripcionesFormatted);
+    }
+
+    public function showArchivo(string $archivo)
+    {
+        $archivo = basename(rawurldecode($archivo));
+
+        if ($archivo === '' || $archivo === '.' || $archivo === '..') {
+            abort(404);
+        }
+
+        $paths = [
+            public_path('storage/archivos/' . $archivo),
+            storage_path('app/public/archivos/' . $archivo),
+        ];
+
+        foreach ($paths as $path) {
+            if (File::exists($path)) {
+                return response()->file($path, [
+                    'Cache-Control' => 'private, max-age=3600',
+                ]);
+            }
+        }
+
+        Log::warning("Archivo no encontrado: {$archivo}");
+
+        abort(404);
     }
 
     /**

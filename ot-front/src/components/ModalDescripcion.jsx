@@ -15,10 +15,161 @@ const iconMap = {
     default: '/icongaleria.png',
 };
 
+const imageTileStyle = {
+    width: 150,
+    height: 150,
+    borderRadius: '8px',
+    boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+};
+
+const safeDecode = (value) => {
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        return value;
+    }
+};
+
+const getRawArchivoValue = (desc) => desc?.archivo_nombre || desc?.archivo_url || desc?.archivo || '';
+
+const getArchivoNombre = (desc) => {
+    let archivo = String(getRawArchivoValue(desc)).trim();
+
+    if (!archivo) {
+        return 'archivo';
+    }
+
+    try {
+        if (/^https?:\/\//i.test(archivo)) {
+            archivo = new URL(archivo).pathname;
+        }
+    } catch {
+        // Mantiene el valor original si no es una URL válida.
+    }
+
+    archivo = archivo
+        .replace(/\\/g, '/')
+        .split('?')[0]
+        .split('#')[0]
+        .replace(/^(\/)?(public\/)?storage\/archivos\//, '');
+
+    const nombre = archivo.split('/').filter(Boolean).pop() || archivo;
+
+    return safeDecode(nombre || 'archivo');
+};
+
+const getApiArchivoUrl = (desc) =>
+    new URL(`archivos/${encodeURIComponent(getArchivoNombre(desc))}`, apiBaseUrl.href).toString();
+
+function AuthenticatedImage({ desc }) {
+    const [src, setSrc] = useState('');
+    const [error, setError] = useState('');
+    const archivoNombre = getArchivoNombre(desc);
+    const archivoUrl = getApiArchivoUrl(desc);
+
+    useEffect(() => {
+        let cancelled = false;
+        let objectUrl = '';
+
+        setSrc('');
+        setError('');
+
+        fetch(archivoUrl, {
+            headers: {
+                Authorization: `Bearer ${localStorage.getItem('token')}`,
+                Accept: 'image/*',
+            },
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                return response.blob();
+            })
+            .then((blob) => {
+                objectUrl = URL.createObjectURL(blob);
+
+                if (cancelled) {
+                    URL.revokeObjectURL(objectUrl);
+                    return;
+                }
+
+                setSrc(objectUrl);
+            })
+            .catch((err) => {
+                if (!cancelled) {
+                    setError(err.message || 'No se pudo cargar');
+                }
+            });
+
+        return () => {
+            cancelled = true;
+
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+            }
+        };
+    }, [archivoUrl]);
+
+    if (error) {
+        return (
+            <div
+                title={`${archivoNombre} - ${error}`}
+                style={{
+                    ...imageTileStyle,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 8,
+                    border: '1px solid #d9d9d9',
+                    color: '#8c8c8c',
+                    fontSize: 12,
+                    textAlign: 'center',
+                }}
+            >
+                No se pudo cargar
+            </div>
+        );
+    }
+
+    if (!src) {
+        return (
+            <div
+                style={{
+                    ...imageTileStyle,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                }}
+            >
+                <Spin size="small" />
+            </div>
+        );
+    }
+
+    return (
+        <Image
+            src={src}
+            alt={archivoNombre}
+            width={150}
+            height={150}
+            style={{
+                objectFit: 'cover',
+                borderRadius: '8px',
+                boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+                padding: '2px',
+            }}
+            preview={{ src }}
+        />
+    );
+}
+
 export default function ModalDescripcion({ isOpen, setIsOpen, idOrden }) {
 
     const [descripciones, setDescripciones] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [archivoAbriendoId, setArchivoAbriendoId] = useState(null);
 
     useEffect(() => {
         if (!isOpen || !idOrden) {
@@ -56,57 +207,6 @@ export default function ModalDescripcion({ isOpen, setIsOpen, idOrden }) {
     const handleOk = () => setIsOpen(false);
     const handleCancel = () => setIsOpen(false);
 
-    const safeDecode = (value) => {
-        try {
-            return decodeURIComponent(value);
-        } catch {
-            return value;
-        }
-    };
-
-    const encodePath = (path) =>
-        path
-            .replace(/\\/g, '/')
-            .split('/')
-            .filter(Boolean)
-            .map((segment) => encodeURIComponent(safeDecode(segment)))
-            .join('/');
-
-    const normalizeStorageUrl = (value) => {
-        const archivo = String(value || '').trim();
-
-        if (!archivo) {
-            return '';
-        }
-
-        if (/^https?:\/\//i.test(archivo)) {
-            const url = new URL(archivo);
-
-            if (url.pathname.includes('/storage/archivos/')) {
-                url.protocol = apiBaseUrl.protocol;
-                url.host = apiBaseUrl.host;
-            }
-
-            return url.toString();
-        }
-
-        const normalized = archivo.replace(/^(public\/)?storage\/archivos\//, '');
-
-        if (archivo.startsWith('/')) {
-            return `${apiBaseUrl.origin}${archivo}`;
-        }
-
-        return `${apiBaseUrl.origin}/storage/archivos/${encodePath(normalized)}`;
-    };
-
-    const getArchivoUrl = (desc) => normalizeStorageUrl(desc?.archivo_url || desc?.archivo || '');
-
-    const getArchivoNombre = (desc) => {
-        const archivo = desc?.archivo_nombre || getArchivoUrl(desc).split('/').pop() || 'archivo';
-
-        return safeDecode(archivo);
-    };
-
     const getFileExtension = (desc) => {
         const cleanName = getArchivoNombre(desc).split('?')[0].split('#')[0];
 
@@ -130,9 +230,51 @@ export default function ModalDescripcion({ isOpen, setIsOpen, idOrden }) {
         return iconMap.default;
     };
 
-    const fotos = descripciones.filter((desc) => getArchivoUrl(desc) && isImageFile(desc));
+    const hasArchivo = (desc) => Boolean(String(getRawArchivoValue(desc)).trim());
 
-    const archivos = descripciones.filter((desc) => getArchivoUrl(desc) && !isImageFile(desc));
+    const abrirArchivo = async (desc) => {
+        const archivoNombre = getArchivoNombre(desc);
+        const archivoKey = desc.id || archivoNombre;
+
+        try {
+            setArchivoAbriendoId(archivoKey);
+
+            const response = await fetch(getApiArchivoUrl(desc), {
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem('token')}`,
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            const opened = window.open(objectUrl, '_blank', 'noopener,noreferrer');
+
+            if (!opened) {
+                const link = document.createElement('a');
+                link.href = objectUrl;
+                link.download = archivoNombre;
+                link.click();
+            }
+
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        } catch (error) {
+            console.error('Error abriendo archivo:', error);
+            notification.error({
+                message: 'Error',
+                description: `No se pudo abrir ${archivoNombre}.`,
+            });
+        } finally {
+            setArchivoAbriendoId(null);
+        }
+    };
+
+    const fotos = descripciones.filter((desc) => hasArchivo(desc) && isImageFile(desc));
+
+    const archivos = descripciones.filter((desc) => hasArchivo(desc) && !isImageFile(desc));
 
 
     return (
@@ -164,27 +306,12 @@ export default function ModalDescripcion({ isOpen, setIsOpen, idOrden }) {
                     <Title level={4} style={{ fontSize: '18px', padding: 0, marginBottom: 4 }}>Fotos</Title>
                     <Divider style={{ marginBottom: 8 }} />
                     <Image.PreviewGroup >
-                        {fotos.map((desc) => {
-                            const archivoUrl = getArchivoUrl(desc);
-
-                            return (
-                                <Image
-                                    key={desc.id || archivoUrl}
-                                    src={archivoUrl}
-                                    alt={getArchivoNombre(desc)}
-                                    width={150}
-                                    height={150}
-                                    fallback={iconMap.image}
-                                    style={{
-                                        objectFit: 'cover',
-                                        borderRadius: '8px',
-                                        boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
-                                        padding: '2px'
-                                    }}
-                                    preview={{ src: archivoUrl }}
-                                />
-                            );
-                        })}
+                        {fotos.map((desc) => (
+                            <AuthenticatedImage
+                                key={desc.id || getArchivoNombre(desc)}
+                                desc={desc}
+                            />
+                        ))}
                     </Image.PreviewGroup>
                 </div>
             )}
@@ -195,11 +322,11 @@ export default function ModalDescripcion({ isOpen, setIsOpen, idOrden }) {
                     <Title level={4} style={{ fontSize: '18px', padding: 0, marginBottom: 4 }}>Archivos</Title>
                     <Divider style={{ marginBottom: 8 }} />
                     {archivos.map((desc) => {
-                        const archivoUrl = getArchivoUrl(desc);
                         const archivoNombre = getArchivoNombre(desc);
+                        const archivoKey = desc.id || archivoNombre;
 
                         return (
-                            <div key={desc.id || archivoUrl} className="mb-3 flex items-center">
+                            <div key={archivoKey} className="mb-3 flex items-center">
                                 <img
                                     src={getFileIcon(desc)}
                                     alt="Archivo"
@@ -207,9 +334,8 @@ export default function ModalDescripcion({ isOpen, setIsOpen, idOrden }) {
                                 />
                                 <Button
                                     type="link"
-                                    href={archivoUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
+                                    loading={archivoAbriendoId === archivoKey}
+                                    onClick={() => abrirArchivo(desc)}
                                     style={{ fontSize: '14px', paddingInline: 0, whiteSpace: 'normal', textAlign: 'left' }}
                                 >
                                     {archivoNombre}

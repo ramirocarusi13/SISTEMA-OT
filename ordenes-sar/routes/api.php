@@ -34,6 +34,7 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
 
 
     Route::get('/descripciones', [DescripcionController::class, 'index']);
+    Route::get('/archivos/{archivo}', [DescripcionController::class, 'showArchivo'])->where('archivo', '.*');
     Route::get('/ordenes-trabajo/{id}/foto-finalizada', [OrdenTrabajoController::class, 'getFotoFinalizada']);
     Route::get('/ordenes-trabajo', [OrdenTrabajoController::class, 'index']);
 

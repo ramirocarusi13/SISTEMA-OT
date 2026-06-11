@@ -119,15 +119,12 @@ class OrdenTrabajoController extends Controller
         $ordenTrabajo = OrdenTrabajo::find($id);
 
         if ($ordenTrabajo && $ordenTrabajo->foto_finalizada) {
+            $fotoNombre = $ordenTrabajo->getRawOriginal('foto_finalizada');
 
-
-
-
-
-
-
-
-            return response()->json(['foto_finalizada' => $ordenTrabajo->foto_finalizada]);
+            return response()->json([
+                'foto_finalizada' => $ordenTrabajo->foto_finalizada,
+                'foto_finalizada_nombre' => $fotoNombre,
+            ]);
         }
 
         // Registro de error si no se encuentra la foto
