@@ -5,6 +5,7 @@ const APIURI = import.meta.env.VITE_API
 
 const { Title } = Typography;
 const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'jfif'];
+const apiBaseUrl = new URL(APIURI, window.location.origin);
 
 const iconMap = {
     pdf: '/iconpdf.png',
@@ -63,7 +64,42 @@ export default function ModalDescripcion({ isOpen, setIsOpen, idOrden }) {
         }
     };
 
-    const getArchivoUrl = (desc) => desc?.archivo_url || desc?.archivo || '';
+    const encodePath = (path) =>
+        path
+            .replace(/\\/g, '/')
+            .split('/')
+            .filter(Boolean)
+            .map((segment) => encodeURIComponent(safeDecode(segment)))
+            .join('/');
+
+    const normalizeStorageUrl = (value) => {
+        const archivo = String(value || '').trim();
+
+        if (!archivo) {
+            return '';
+        }
+
+        if (/^https?:\/\//i.test(archivo)) {
+            const url = new URL(archivo);
+
+            if (url.pathname.includes('/storage/archivos/')) {
+                url.protocol = apiBaseUrl.protocol;
+                url.host = apiBaseUrl.host;
+            }
+
+            return url.toString();
+        }
+
+        const normalized = archivo.replace(/^(public\/)?storage\/archivos\//, '');
+
+        if (archivo.startsWith('/')) {
+            return `${apiBaseUrl.origin}${archivo}`;
+        }
+
+        return `${apiBaseUrl.origin}/storage/archivos/${encodePath(normalized)}`;
+    };
+
+    const getArchivoUrl = (desc) => normalizeStorageUrl(desc?.archivo_url || desc?.archivo || '');
 
     const getArchivoNombre = (desc) => {
         const archivo = desc?.archivo_nombre || getArchivoUrl(desc).split('/').pop() || 'archivo';
