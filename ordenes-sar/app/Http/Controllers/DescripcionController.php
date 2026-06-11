@@ -95,7 +95,7 @@ class DescripcionController extends Controller
 
     private function normalizeArchivoName(string $name): string
     {
-        return mb_strtolower(rawurldecode(str_replace('+', ' ', $name)));
+        return strtolower(rawurldecode(str_replace('+', ' ', $name)));
     }
 
     /**
