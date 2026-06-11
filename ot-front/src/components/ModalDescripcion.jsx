@@ -5,7 +5,6 @@ const APIURI = import.meta.env.VITE_API
 
 const { Title } = Typography;
 const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'jfif'];
-const apiBaseUrl = new URL(APIURI, window.location.origin);
 
 const iconMap = {
     pdf: '/iconpdf.png',
@@ -58,58 +57,21 @@ const getArchivoNombre = (desc) => {
     return safeDecode(nombre || 'archivo');
 };
 
-const getApiArchivoUrl = (desc) =>
-    new URL(`archivos/${encodeURIComponent(getArchivoNombre(desc))}`, apiBaseUrl.href).toString();
+const getPublicArchivoUrl = (desc) =>
+    new URL(`/storage/archivos/${encodeURIComponent(getArchivoNombre(desc))}`, window.location.origin).toString();
 
 function AuthenticatedImage({ desc }) {
-    const [src, setSrc] = useState('');
     const [error, setError] = useState('');
     const archivoNombre = getArchivoNombre(desc);
-    const archivoUrl = getApiArchivoUrl(desc);
+    const archivoUrl = getPublicArchivoUrl(desc);
 
     useEffect(() => {
-        let cancelled = false;
-        let objectUrl = '';
-
-        setSrc('');
         setError('');
 
-        fetch(archivoUrl, {
-            headers: {
-                Authorization: `Bearer ${localStorage.getItem('token')}`,
-                Accept: 'image/*',
-            },
-        })
-            .then((response) => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-
-                return response.blob();
-            })
-            .then((blob) => {
-                objectUrl = URL.createObjectURL(blob);
-
-                if (cancelled) {
-                    URL.revokeObjectURL(objectUrl);
-                    return;
-                }
-
-                setSrc(objectUrl);
-            })
-            .catch((err) => {
-                if (!cancelled) {
-                    setError(err.message || 'No se pudo cargar');
-                }
-            });
-
-        return () => {
-            cancelled = true;
-
-            if (objectUrl) {
-                URL.revokeObjectURL(objectUrl);
-            }
-        };
+        const img = document.createElement('img');
+        img.onload = () => setError('');
+        img.onerror = () => setError('No se pudo cargar');
+        img.src = archivoUrl;
     }, [archivoUrl]);
 
     if (error) {
@@ -133,24 +95,9 @@ function AuthenticatedImage({ desc }) {
         );
     }
 
-    if (!src) {
-        return (
-            <div
-                style={{
-                    ...imageTileStyle,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                }}
-            >
-                <Spin size="small" />
-            </div>
-        );
-    }
-
     return (
         <Image
-            src={src}
+            src={archivoUrl}
             alt={archivoNombre}
             width={150}
             height={150}
@@ -160,7 +107,7 @@ function AuthenticatedImage({ desc }) {
                 boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
                 padding: '2px',
             }}
-            preview={{ src }}
+            preview={{ src: archivoUrl }}
         />
     );
 }
@@ -239,28 +186,15 @@ export default function ModalDescripcion({ isOpen, setIsOpen, idOrden }) {
         try {
             setArchivoAbriendoId(archivoKey);
 
-            const response = await fetch(getApiArchivoUrl(desc), {
-                headers: {
-                    Authorization: `Bearer ${localStorage.getItem('token')}`,
-                },
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const blob = await response.blob();
-            const objectUrl = URL.createObjectURL(blob);
-            const opened = window.open(objectUrl, '_blank', 'noopener,noreferrer');
+            const archivoUrl = getPublicArchivoUrl(desc);
+            const opened = window.open(archivoUrl, '_blank', 'noopener,noreferrer');
 
             if (!opened) {
                 const link = document.createElement('a');
-                link.href = objectUrl;
+                link.href = archivoUrl;
                 link.download = archivoNombre;
                 link.click();
             }
-
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
         } catch (error) {
             console.error('Error abriendo archivo:', error);
             notification.error({

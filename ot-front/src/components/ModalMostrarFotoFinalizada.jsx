@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Spin, Image, Divider, notification } from 'antd';
 
 const APIURI = import.meta.env.VITE_API;
-const apiBaseUrl = new URL(APIURI, window.location.origin);
 
 const safeDecode = (value) => {
     try {
@@ -36,8 +35,8 @@ const getArchivoNombre = (value) => {
     return safeDecode(archivo.split('/').filter(Boolean).pop() || '');
 };
 
-const getApiArchivoUrl = (archivoNombre) =>
-    new URL(`archivos/${encodeURIComponent(archivoNombre)}`, apiBaseUrl.href).toString();
+const getPublicArchivoUrl = (archivoNombre) =>
+    new URL(`/storage/archivos/${encodeURIComponent(archivoNombre)}`, window.location.origin).toString();
 
 export default function ModalMostrarFotoFinalizada({ isOpen, setIsOpen, idOrden }) {
     const [fotoFinalizada, setFotoFinalizada] = useState(null);
@@ -49,7 +48,6 @@ export default function ModalMostrarFotoFinalizada({ isOpen, setIsOpen, idOrden 
         }
 
         let cancelled = false;
-        let objectUrl = '';
 
         setIsLoading(true);
         setFotoFinalizada(null);
@@ -78,37 +76,14 @@ export default function ModalMostrarFotoFinalizada({ isOpen, setIsOpen, idOrden 
                     return null;
                 }
 
-                return fetch(getApiArchivoUrl(archivoNombre), {
-                    headers: {
-                        Authorization: `Bearer ${localStorage.getItem('token')}`,
-                        Accept: 'image/*',
-                    },
-                });
+                return getPublicArchivoUrl(archivoNombre);
             })
-            .then((response) => {
-                if (!response) {
-                    return null;
-                }
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-
-                return response.blob();
-            })
-            .then((blob) => {
-                if (!blob) {
+            .then((archivoUrl) => {
+                if (!archivoUrl) {
                     return;
                 }
 
-                objectUrl = URL.createObjectURL(blob);
-
-                if (cancelled) {
-                    URL.revokeObjectURL(objectUrl);
-                    return;
-                }
-
-                setFotoFinalizada(objectUrl);
+                setFotoFinalizada(archivoUrl);
             })
             .catch((error) => {
                 if (!cancelled) {
@@ -127,10 +102,6 @@ export default function ModalMostrarFotoFinalizada({ isOpen, setIsOpen, idOrden 
 
         return () => {
             cancelled = true;
-
-            if (objectUrl) {
-                URL.revokeObjectURL(objectUrl);
-            }
         };
     }, [isOpen, idOrden]);
 
