@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\ArchivoOrden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -59,6 +60,6 @@ class OrdenTrabajo extends Model
     }
     public function getFotoFinalizadaAttribute($value)
     {
-        return $value ? asset('storage/archivos/' . $value) : null;
+        return ArchivoOrden::url($value);
     }
 }

@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Descripcion;
+use App\Support\ArchivoOrden;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 
 class DescripcionController extends Controller
 {
@@ -22,11 +22,15 @@ class DescripcionController extends Controller
 
         // Formatear la respuesta
         $descripcionesFormatted = $descripciones->map(function ($descripcion) {
+            $archivoUrl = ArchivoOrden::url($descripcion->archivo);
+
             return [
                 'id' => $descripcion->id,
                 'titulo' => $descripcion->titulo,
                 'descripcion' => $descripcion->descripcion,
-                'archivo' => $descripcion->archivo ? asset('storage/archivos/' . $descripcion->archivo) : null,
+                'archivo' => $archivoUrl,
+                'archivo_url' => $archivoUrl,
+                'archivo_nombre' => $descripcion->archivo,
                 'mime_type' => $descripcion->mime_type,
             ];
         });
@@ -47,7 +51,7 @@ class DescripcionController extends Controller
             'titulo' => 'required|string|max:255',
             'descripcion' => 'required|string',
             'orden_id' => 'required|exists:ordenes_trabajo,id',
-            'archivo' => 'nullable|file|mimes:jpg,png,jpeg,pdf,doc,docx,xlsx|max:5120', 
+            'archivo' => 'nullable|file|mimes:jpeg,png,jpg,gif,svg,pdf,doc,docx,xls,xlsx|max:5120',
             // Máx: 5MB
         ]);
 
@@ -55,16 +59,9 @@ class DescripcionController extends Controller
         $mimeType = null;
 
         if ($request->hasFile('archivo')) {
-            // Obtener la extensión y el tipo MIME del archivo
-            $extension = $request->file('archivo')->getClientOriginalExtension();
             $mimeType = $request->file('archivo')->getMimeType();
 
-            // Crear un nombre único basado en la fecha y hora actuales
-            $fechaHora = now()->format('Ymd_His');
-            $archivoNombre = "archivo_{$fechaHora}.{$extension}";
-
-            // Guardar el archivo en el almacenamiento
-            $request->file('archivo')->storeAs('public/archivos', $archivoNombre);
+            $archivoNombre = ArchivoOrden::store($request->file('archivo'));
         }
 
         // Crear una nueva descripción con el archivo y tipo MIME
@@ -78,6 +75,16 @@ class DescripcionController extends Controller
 
         Log::info("Archivo subido: {$archivoNombre} con MIME: {$mimeType}");
 
-        return response()->json($descripcion, 201);
+        $archivoUrl = ArchivoOrden::url($descripcion->archivo);
+
+        return response()->json([
+            'id' => $descripcion->id,
+            'titulo' => $descripcion->titulo,
+            'descripcion' => $descripcion->descripcion,
+            'archivo' => $archivoUrl,
+            'archivo_url' => $archivoUrl,
+            'archivo_nombre' => $descripcion->archivo,
+            'mime_type' => $descripcion->mime_type,
+        ], 201);
     }
 }

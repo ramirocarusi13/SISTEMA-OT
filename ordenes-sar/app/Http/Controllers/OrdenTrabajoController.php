@@ -8,6 +8,7 @@ use App\Models\Descripcion;
 use App\Models\Notificacion;
 use App\Models\OrdenTrabajo;
 use App\Models\User;
+use App\Support\ArchivoOrden;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
@@ -88,7 +89,7 @@ class OrdenTrabajoController extends Controller
                 'fecha_aprobacion' => $orden->fecha_aprobacion,
                 'fecha_estimacion' => $orden->fecha_estimacion,
                 'fecha_finalizacion' => $orden->fecha_finalizacion,
-                'foto_finalizada' => $orden->fecha_finalizacion,
+                'foto_finalizada' => $orden->foto_finalizada,
                 'created_at' => $orden->created_at,
                 'updated_at' => $orden->updated_at,
             ];
@@ -188,7 +189,7 @@ class OrdenTrabajoController extends Controller
             'fecha_asignacion' => 'nullable|date',
             'horas_ot' => 'nullable|integer',
             'mensaje_finalizacion' => 'nullable|string',
-            'foto_finalizada.*' => 'nullable|file|mimes:jpeg,png,jpg,gif,svg|max:5120', // Validar que sea una imagen
+            'foto_finalizada' => 'nullable|file|mimes:jpeg,png,jpg,gif,svg|max:5120', // Validar que sea una imagen
         ]);
 
         try {
@@ -224,11 +225,7 @@ class OrdenTrabajoController extends Controller
                 if ($request->hasFile('foto_finalizada')) {
                     $foto = $request->file('foto_finalizada');
 
-                    // Generar un nombre único para la foto
-                    $fotoNombre = time() . '_' . $foto->getClientOriginalName();
-
-                    // Mover la foto a la carpeta 'storage/archivos'
-                    $foto->move(public_path('storage/archivos'), $fotoNombre);
+                    $fotoNombre = ArchivoOrden::store($foto, 'foto_finalizada');
 
                     // Actualizar el campo en la tabla ordenes_trabajo
                     $orden->foto_finalizada = $fotoNombre;
@@ -431,7 +428,7 @@ class OrdenTrabajoController extends Controller
             'comentarios' => 'nullable|string',
             'usuario_mantenimiento_id' => 'nullable|exists:users,id',
             'estado' => 'required|string',
-            'archivos.*' => 'required|file:jpeg,png,jpg,gif,svg,pdf,doc,docx,xls,xlsx|max:99120',
+            'archivos.*' => 'required|file|mimes:jpeg,png,jpg,gif,svg,pdf,doc,docx,xls,xlsx|max:99120',
         ]);
 
         // |file|mimes:jpeg,png,jpg,gif,svg,pdf,doc,docx,xls,xlsx|max:28120
@@ -455,15 +452,15 @@ class OrdenTrabajoController extends Controller
             // Verificar y guardar archivos subidos
             if ($request->hasFile('archivos')) {
                 foreach ($request->file('archivos') as $archivo) {
-                    // Generar un nombre único para el archivo
-                    $archivoNombre = time() . '_' . $archivo->getClientOriginalName();
-                    $archivo->move(public_path('storage/archivos'), $archivoNombre);
+                    $mimeType = $archivo->getMimeType();
+                    $archivoNombre = ArchivoOrden::store($archivo);
 
                     // Crear una entrada en la tabla `descripciones` para cada archivo
                     Descripcion::create([
                         'orden_id' => $orden->id,
                         'descripcion' => $request->descripcion,
                         'archivo' => $archivoNombre,
+                        'mime_type' => $mimeType,
                     ]);
                 }
             } else {
@@ -528,15 +525,15 @@ class OrdenTrabajoController extends Controller
             // Verificar y guardar archivos subidos
             if ($request->hasFile('archivos')) {
                 foreach ($request->file('archivos') as $archivo) {
-                    // Generar un nombre único para el archivo
-                    $archivoNombre = time() . '_' . $archivo->getClientOriginalName();
-                    $archivo->move(public_path('storage/archivos'), $archivoNombre);
+                    $mimeType = $archivo->getMimeType();
+                    $archivoNombre = ArchivoOrden::store($archivo);
 
                     // Crear una entrada en la tabla `descripciones` para cada archivo
                     Descripcion::create([
                         'orden_id' => $orden->id,
                         'descripcion' => $request->descripcion ?? 'Archivo subido sin descripción', // Valor predeterminado
                         'archivo' => $archivoNombre,
+                        'mime_type' => $mimeType,
                     ]);
                 }
 

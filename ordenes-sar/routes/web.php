@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -16,3 +17,19 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return view('welcome');
 });
+
+Route::get('/storage/archivos/{archivo}', function (string $archivo) {
+    $archivo = basename($archivo);
+    $paths = [
+        public_path('storage/archivos/' . $archivo),
+        storage_path('app/public/archivos/' . $archivo),
+    ];
+
+    foreach ($paths as $path) {
+        if (File::exists($path)) {
+            return response()->file($path);
+        }
+    }
+
+    abort(404);
+})->where('archivo', '.*');
