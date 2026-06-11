@@ -40,6 +40,17 @@ class ArchivoOrden
         $segments = array_filter(explode('/', $normalized), fn ($segment) => !in_array($segment, ['', '.', '..'], true));
         $segments = array_map('rawurlencode', $segments);
 
-        return asset(self::PUBLIC_DIR . '/' . implode('/', $segments));
+        return self::baseUrl() . '/' . self::PUBLIC_DIR . '/' . implode('/', $segments);
+    }
+
+    private static function baseUrl(): string
+    {
+        $baseUrl = config('app.asset_url');
+
+        if (!$baseUrl && !app()->runningInConsole()) {
+            $baseUrl = request()->getSchemeAndHttpHost();
+        }
+
+        return rtrim($baseUrl ?: config('app.url'), '/');
     }
 }
