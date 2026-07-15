@@ -624,12 +624,15 @@ const OrdenTrabajoList = () => {
                             Aprobar
                         </Button>
                     )}
-                    {orden.estado === 'aprobada' && parseInt(usuario?.departamento_id) === 2 && (
+                    {orden.estado === 'aprobada' && parseInt(usuario?.departamento_id) === 2 && usuario?.rol !== 'group_leader' && (
                         <Button type="primary" onClick={() => abrirModalAsignar(orden.id)}>
                             Asignar
                         </Button>
                     )}
-                    {usuario?.rol === 'group_leader' && orden.estado === 'asignada' && (
+                    {orden.estado === 'asignada' && (
+                        (usuario?.rol === 'group_leader' && parseInt(orden.usuario_mantenimiento_id) === parseInt(usuario?.id)) ||
+                        (usuario?.rol === 'gerente' && parseInt(usuario?.departamento_id) === 2)
+                    ) && (
                         <Button
                             type="primary"
                             onClick={() => abrirModalFinalizar(orden.id)}
@@ -734,6 +737,16 @@ const OrdenTrabajoList = () => {
 
         /* e.log("Órdenes filtradas:", ordenesFiltradas);consol */ // Debug: ver resultado final
         return ordenesFiltradas;
+    };
+    const filtrarOrdenesOtrosGL = () => {
+        return ordenes.filter((orden) => {
+            return (
+                (orden.estado === 'asignada' || orden.estado === 'finalizada') &&
+                orden.usuario_mantenimiento_id !== null &&
+                orden.usuario_mantenimiento_id !== undefined &&
+                parseInt(orden.usuario_mantenimiento_id) !== parseInt(usuario?.id)
+            );
+        });
     };
 
     const ordenesList = Array.isArray(ordenes) ? ordenes : [];
@@ -883,6 +896,15 @@ const OrdenTrabajoList = () => {
                                 onClick={() => setVisibleTable(visibleTable === 'finalizada_group_leader' ? null : 'finalizada_group_leader')}
                             >
                                 Finalizadas
+                            </Button>
+                        )}
+
+                        {parseInt(usuario?.departamento_id) === 2 && usuario?.rol === 'group_leader' && ( //VISTA OTROS GL (solo lectura)
+                            <Button
+                                className={`ot-status-button ${visibleTable === 'otros_gl' ? 'is-active' : ''}`}
+                                onClick={() => setVisibleTable(visibleTable === 'otros_gl' ? null : 'otros_gl')}
+                            >
+                                Otros GL
                             </Button>
                         )}
                     </div>
@@ -1053,7 +1075,15 @@ const OrdenTrabajoList = () => {
                     <h2 className="table-section-title">Finalizadas</h2>
                     <Table
                         dataSource={filtrarOrdenesPorEstado('finalizada')}
-                        columns={columns}
+                        columns={[
+                            ...columns,
+                            {
+                                title: 'Finalizada por',
+                                dataIndex: 'finalizado_por',
+                                key: 'finalizado_por',
+                                render: (text) => text || 'N/A',
+                            }
+                        ]}
                         rowKey="id"
                         pagination={{ pageSize: 10 }}
                         size="small"
@@ -1068,12 +1098,51 @@ const OrdenTrabajoList = () => {
                     <h2 className="table-section-title">Finalizadas</h2>
                     <Table
                         dataSource={filtrarOrdenesAsignadasPorUser('finalizada')}
-                        columns={columns}
+                        columns={[
+                            ...columns,
+                            {
+                                title: 'Finalizada por',
+                                dataIndex: 'finalizado_por',
+                                key: 'finalizado_por',
+                                render: (text) => text || 'N/A',
+                            }
+                        ]}
                         rowKey="id"
                         pagination={{ pageSize: 10 }}
                         size="small"
                         scroll={{ x: 'max-content' }}
                         className="modern-table status-success"
+                        rowClassName={tableRowClassName}
+                    />
+                </>
+            )}
+
+            {visibleTable === 'otros_gl' && (
+                <>
+                    <h2 className="table-section-title">Órdenes de otros GL</h2>
+                    <Table
+                        dataSource={filtrarOrdenesOtrosGL()}
+                        columns={[
+                            ...columns, // Keep existing columns
+                            {
+                                title: 'Fecha de Estimación', // Title for the new column
+                                dataIndex: 'fecha_estimacion', // Data field
+                                key: 'fecha_estimacion',
+                                render: (text) => text ? new Date(text).toLocaleDateString() : 'N/A', // Format the date or display 'N/A' if empty
+                                className: 'text-center', // Optional class to center the text
+                            },
+                            {
+                                title: 'Finalizada por',
+                                dataIndex: 'finalizado_por',
+                                key: 'finalizado_por',
+                                render: (text) => text || 'N/A',
+                            }
+                        ]}
+                        rowKey="id"
+                        pagination={{ pageSize: 10 }}
+                        size="small"
+                        scroll={{ x: 'max-content' }}
+                        className="modern-table status-info"
                         rowClassName={tableRowClassName}
                     />
                 </>

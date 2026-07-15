@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Roles;
 use App\Mail\OrdenCreadaMail;
 use App\Mail\OrdenEstadoCambiadoMail;
 use App\Models\Descripcion;
@@ -39,14 +40,14 @@ class OrdenTrabajoController extends Controller
 
         // Construir consulta base dependiendo del usuario
         if ($departamentoId == 2) {  // Mantenimiento
-            $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento']);
+            $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento', 'finalizadoPor']);
         } elseif ($rol == 'gerente') {
-            $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento'])
+            $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento', 'finalizadoPor'])
                 ->whereHas('creador', function ($q) use ($departamentoId) {
                     $q->where('departamento_id', $departamentoId);
                 });
         } else {
-            $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento'])
+            $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento', 'finalizadoPor'])
                 ->whereHas('creador', function ($q) use ($departamentoId) {
                     $q->where('departamento_id', $departamentoId);
                 });
@@ -90,6 +91,8 @@ class OrdenTrabajoController extends Controller
                 'fecha_estimacion' => $orden->fecha_estimacion,
                 'fecha_finalizacion' => $orden->fecha_finalizacion,
                 'foto_finalizada' => $orden->foto_finalizada,
+                'finalizado_por' => $orden->finalizadoPor ? $orden->finalizadoPor->name : null,
+                'finalizado_por_id' => $orden->finalizado_por_id,
                 'created_at' => $orden->created_at,
                 'updated_at' => $orden->updated_at,
             ];
@@ -142,7 +145,7 @@ class OrdenTrabajoController extends Controller
     {
         try {
             // Buscar la orden de trabajo con sus relaciones
-            $orden = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripciones'])
+            $orden = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripciones', 'finalizadoPor'])
                 ->findOrFail($id); // Lanza una excepción si no se encuentra la orden
 
             // Formatear la respuesta
@@ -185,12 +188,33 @@ class OrdenTrabajoController extends Controller
             'fecha_estimacion' => 'nullable|date',
             'fecha_asignacion' => 'nullable|date',
             'horas_ot' => 'nullable|integer',
-            'mensaje_finalizacion' => 'nullable|string',
+            'mensaje_finalizacion' => 'required_if:estado,finalizada|string|nullable',
             'foto_finalizada' => 'nullable|file|mimes:jpeg,png,jpg,gif,svg|max:5120', // Validar que sea una imagen
         ]);
 
         try {
             $orden = OrdenTrabajo::findOrFail($id);
+
+            // Un group_leader solo puede modificar órdenes que tiene asignadas
+            $userLogueado = auth()->user();
+            if ($userLogueado->rol === Roles::GROUP_LEADER && (int) $orden->usuario_mantenimiento_id !== (int) $userLogueado->id) {
+                return response()->json(['error' => 'No tiene permisos para modificar esta orden'], 403);
+            }
+
+            // Finalizar solo puede: el GL dueño (ya validado arriba), el gerente de mantenimiento,
+            // el gerente del departamento del creador, o el analista creador de la orden
+            if ($request->estado === 'finalizada' && $userLogueado->rol !== Roles::GROUP_LEADER) {
+                $esGerenteMantenimiento = $userLogueado->rol === Roles::GERENTE && (int) $userLogueado->departamento_id === 2;
+                $esGerenteDelCreador = $userLogueado->rol === Roles::GERENTE
+                    && $orden->creador
+                    && (int) $userLogueado->departamento_id === (int) $orden->creador->departamento_id;
+                $esAnalistaCreador = $userLogueado->rol === 'analista' && (int) $orden->usuario_id === (int) $userLogueado->id;
+
+                if (!$esGerenteMantenimiento && !$esGerenteDelCreador && !$esAnalistaCreador) {
+                    return response()->json(['error' => 'No tiene permisos para finalizar esta orden'], 403);
+                }
+            }
+
             $estadoAnterior = $orden->estado;
 
             // Asignar usuario si el estado es 'asignada'
@@ -217,6 +241,7 @@ class OrdenTrabajoController extends Controller
             // Actualizar fecha de finalización si el estado es 'finalizada'
             if ($request->estado === 'finalizada') {
                 $orden->fecha_finalizacion = Carbon::now('America/Argentina/Buenos_Aires');
+                $orden->finalizado_por_id = auth()->id();
 
                 // Procesar y guardar la foto si fue subida
                 if ($request->hasFile('foto_finalizada')) {
@@ -282,6 +307,7 @@ class OrdenTrabajoController extends Controller
     $orden->estado = 'finalizada';
     $orden->mensaje_finalizacion = $request->mensaje_finalizacion;
     $orden->fecha_finalizacion = Carbon::now();
+    $orden->finalizado_por_id = $user->id;
     $orden->save();
 
     return response()->json(['message' => 'Orden finalizada con éxito.']);
@@ -295,8 +321,14 @@ class OrdenTrabajoController extends Controller
         // Buscar la orden
         $orden = OrdenTrabajo::findOrFail($id);
 
+        // Un group_leader solo puede finalizar órdenes que tiene asignadas
+        $userLogueado = auth()->user();
+        if ($userLogueado->rol === Roles::GROUP_LEADER && (int) $orden->usuario_mantenimiento_id !== (int) $userLogueado->id) {
+            return response()->json(['error' => 'No tiene permisos para modificar esta orden'], 403);
+        }
+
         // Validar que la orden esté en estado "aprobada" antes de finalizar
-        
+
 
         // Validar la solicitud
         $request->validate([
@@ -318,6 +350,7 @@ class OrdenTrabajoController extends Controller
         $orden->estado = 'finalizada';
         $orden->mensaje_finalizacion = $request->mensaje_finalizacion;
         $orden->fecha_finalizacion = Carbon::now();
+        $orden->finalizado_por_id = Auth::id();
         $orden->save();
 
         return response()->json(['message' => 'Orden finalizada con éxito.']);
@@ -517,6 +550,12 @@ class OrdenTrabajoController extends Controller
 
             if (!$orden) {
                 return response()->json(['error' => 'Orden de trabajo no encontrada'], 404);
+            }
+
+            // Un group_leader solo puede agregar archivos a órdenes que tiene asignadas
+            $userLogueado = auth()->user();
+            if ($userLogueado->rol === Roles::GROUP_LEADER && (int) $orden->usuario_mantenimiento_id !== (int) $userLogueado->id) {
+                return response()->json(['error' => 'No tiene permisos para modificar esta orden'], 403);
             }
 
             // Verificar y guardar archivos subidos

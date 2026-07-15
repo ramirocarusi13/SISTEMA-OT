@@ -10,16 +10,18 @@ const ModalFinalizarOrdenTrabajo = ({ isOpen, setIsOpen, ordenId, onFinalizarSuc
     const [tiempo, setTiempo] = useState("");
     const [mensaje, setMensaje] = useState("");
     const [archivo, setArchivo] = useState(null);
+    const [fileList, setFileList] = useState([]);
     const [loading, setLoading] = useState(false); // Estado de carga
 
-    // Manejo de carga de archivo
+    // Manejo de carga de archivo (controlado, solo se permite 1 foto)
     const propsUpload = {
-        beforeUpload: (file) => {
-            setArchivo(file);
-            return false; // Evita el auto-upload
-        },
-        onRemove: () => {
-            setArchivo(null);
+        fileList,
+        maxCount: 1,
+        beforeUpload: () => false, // Evita el auto-upload
+        onChange: ({ fileList: nuevaLista }) => {
+            const lista = nuevaLista.slice(-1); // Solo se permite un archivo
+            setFileList(lista);
+            setArchivo(lista[0]?.originFileObj || null);
         },
     };
 
@@ -31,6 +33,15 @@ const ModalFinalizarOrdenTrabajo = ({ isOpen, setIsOpen, ordenId, onFinalizarSuc
             notification.error({
                 message: "Error de validación",
                 description: "Debe completar el tiempo para finalizar la orden.",
+            });
+            return;
+        }
+
+        // Validar que la observación (mensaje de finalización) esté completa
+        if (!mensaje.trim()) {
+            notification.error({
+                message: "Error de validación",
+                description: "Debe ingresar una observación para finalizar la orden.",
             });
             return;
         }
@@ -70,20 +81,34 @@ const ModalFinalizarOrdenTrabajo = ({ isOpen, setIsOpen, ordenId, onFinalizarSuc
                 setTiempo("");
                 setMensaje("");
                 setArchivo(null);
+                setFileList([]);
             } else {
                 notification.error({
                     message: "Error del servidor",
                     description: result.message || "Hubo un problema al finalizar la orden.",
                 });
+                // Limpiamos la foto para que el próximo intento no reenvíe la que falló
+                setArchivo(null);
+                setFileList([]);
             }
         } catch (error) {
             notification.error({
                 message: "Error de conexión",
                 description: "No se pudo conectar al servidor. Inténtelo nuevamente.",
             });
+            setArchivo(null);
+            setFileList([]);
         } finally {
             setLoading(false); // Desactivar loading después de la respuesta
         }
+    };
+
+    const handleCancelar = () => {
+        setIsOpen(false);
+        setTiempo("");
+        setMensaje("");
+        setArchivo(null);
+        setFileList([]);
     };
 
     return (
@@ -108,12 +133,13 @@ const ModalFinalizarOrdenTrabajo = ({ isOpen, setIsOpen, ordenId, onFinalizarSuc
 
                             {/* Input Mensaje */}
                             <div className="form-field">
-                                <label className="form-label">Mensaje Opcional:</label>
+                                <label className="form-label">Observación (obligatoria):</label>
                                 <Input.TextArea
                                     rows={3}
                                     value={mensaje}
                                     onChange={(e) => setMensaje(e.target.value)}
-                                    placeholder="Escriba un mensaje (opcional)"
+                                    placeholder="Escriba una observación sobre la finalización"
+                                    required
                                 />
                             </div>
 
@@ -134,7 +160,7 @@ const ModalFinalizarOrdenTrabajo = ({ isOpen, setIsOpen, ordenId, onFinalizarSuc
                                 <button
                                     type="button"
                                     className="secondary-action"
-                                    onClick={() => setIsOpen(false)}
+                                    onClick={handleCancelar}
                                 >
                                     Cancelar
                                 </button>

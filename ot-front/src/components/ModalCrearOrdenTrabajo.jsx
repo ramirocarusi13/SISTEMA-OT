@@ -50,8 +50,8 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
         formData.append('usuario_mantenimiento_id', usuarioMantenimientoId);
         formData.append('estado', 'creada');
 
-        archivos.forEach((archivo) => {
-            formData.append('archivos[]', archivo);
+        archivos.forEach((item) => {
+            formData.append('archivos[]', item.originFileObj || item);
         });
 
         try {
@@ -78,26 +78,52 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
                 setArchivos([]);
                 setUsuarioMantenimientoId('');
             } else {
+                // Intentamos mostrar el mensaje real del backend (ej. validación 422 de archivos)
+                let description = 'Hubo un error al crear la orden. Inténtalo de nuevo.';
+                try {
+                    const errorData = await response.json();
+                    if (errorData?.message) {
+                        description = errorData.message;
+                    } else if (errorData?.errors) {
+                        description = Object.values(errorData.errors).flat().join(' ');
+                    }
+                } catch (parseError) {
+                    // Se mantiene el mensaje genérico si la respuesta no trae JSON.
+                }
                 notification.error({
                     message: 'Error',
-                    description: 'Hubo un error al crear la orden. Inténtalo de nuevo.',
+                    description,
                 });
+                // Limpiamos los archivos para que el próximo intento no reenvíe el archivo que falló
+                setArchivos([]);
             }
         } catch (error) {
             console.error('Error:', error);
+            notification.error({
+                message: 'Error de conexión',
+                description: 'No se pudo conectar al servidor. Inténtelo nuevamente.',
+            });
+            // También limpiamos los archivos ante un fallo de red, para permitir reintentar sin recargar
+            setArchivos([]);
         } finally {
             setLoading(false); // Desactivar el spinner
         }
     };
 
+    const handleCancelar = () => {
+        setIsOpen(false);
+        setTitulo('');
+        setDescripcion('');
+        setArchivos([]);
+        setUsuarioMantenimientoId('');
+    };
+
     const propsUpload = {
         multiple: true,
-        beforeUpload: (file) => {
-            setArchivos(prevArchivos => [...prevArchivos, file]);
-            return false;
-        },
-        onRemove: (file) => {
-            setArchivos(prevArchivos => prevArchivos.filter(item => item !== file));
+        fileList: archivos,
+        beforeUpload: () => false, // Evita el auto-upload; el archivo se agrega vía onChange
+        onChange: ({ fileList: nuevaLista }) => {
+            setArchivos(nuevaLista);
         },
     };
 
@@ -152,7 +178,7 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
                                 <button
                                     type="button"
                                     className="secondary-action"
-                                    onClick={() => setIsOpen(false)}
+                                    onClick={handleCancelar}
                                 >
                                     Cancelar
                                 </button>

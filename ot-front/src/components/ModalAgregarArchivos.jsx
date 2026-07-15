@@ -14,12 +14,10 @@ const ModalAgregarArchivos = ({ isOpen, setIsOpen, ordenId, onUploadSuccess }) =
 
     const propsUpload = {
         multiple: true,
-        beforeUpload: (file) => {
-            setArchivos((prevArchivos) => [...prevArchivos, file]);
-            return false; // Prevenir la subida automática
-        },
-        onRemove: (file) => {
-            setArchivos((prevArchivos) => prevArchivos.filter((item) => item !== file));
+        fileList: archivos,
+        beforeUpload: () => false, // Prevenir la subida automática; el archivo se agrega vía onChange
+        onChange: ({ fileList: nuevaLista }) => {
+            setArchivos(nuevaLista);
         },
     };
 
@@ -34,8 +32,8 @@ const ModalAgregarArchivos = ({ isOpen, setIsOpen, ordenId, onUploadSuccess }) =
 
         setIsUploading(true);
         const formData = new FormData();
-        archivos.forEach((archivo) => {
-            formData.append('archivos[]', archivo); // Usar el mismo campo `archivos[]`
+        archivos.forEach((item) => {
+            formData.append('archivos[]', item.originFileObj || item); // Usar el mismo campo `archivos[]`
         });
 
         try {
@@ -57,11 +55,23 @@ const ModalAgregarArchivos = ({ isOpen, setIsOpen, ordenId, onUploadSuccess }) =
                 onUploadSuccess(); // Actualizar la vista
                 setIsOpen(false); // Cerrar el modal
             } else {
-                const errorData = await response.json();
+                let description = 'Hubo un error al subir los archivos.';
+                try {
+                    const errorData = await response.json();
+                    if (errorData?.message) {
+                        description = errorData.message;
+                    } else if (errorData?.errors) {
+                        description = Object.values(errorData.errors).flat().join(' ');
+                    }
+                } catch (parseError) {
+                    // Se mantiene el mensaje genérico si la respuesta no trae JSON.
+                }
                 notification.error({
                     message: 'Error al Subir',
-                    description: errorData.message || 'Hubo un error al subir los archivos.',
+                    description,
                 });
+                // Limpiamos los archivos para que el próximo intento no reenvíe el que falló
+                setArchivos([]);
             }
         } catch (error) {
             console.error('Error al subir archivos:', error);
@@ -69,6 +79,7 @@ const ModalAgregarArchivos = ({ isOpen, setIsOpen, ordenId, onUploadSuccess }) =
                 message: 'Error',
                 description: 'No se pudo conectar al servidor.',
             });
+            setArchivos([]);
         } finally {
             setIsUploading(false);
         }

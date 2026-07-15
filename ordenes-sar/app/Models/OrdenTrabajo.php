@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Support\ArchivoOrden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class OrdenTrabajo extends Model
 {
@@ -26,7 +27,8 @@ class OrdenTrabajo extends Model
         'mensaje_finalizacion',
         'foto_finalizada',
         'horas_ot', // Agrega esta línea si es necesario
-        
+        'finalizado_por_id',
+
     ];
 
 
@@ -41,6 +43,13 @@ class OrdenTrabajo extends Model
     public function usuarioMantenimiento()
     {
         return $this->belongsTo(User::class, 'usuario_mantenimiento_id');
+    }
+
+
+    // Relación con el usuario que finalizó la orden
+    public function finalizadoPor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'finalizado_por_id');
     }
 
 
