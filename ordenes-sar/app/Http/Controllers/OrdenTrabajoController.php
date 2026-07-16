@@ -85,8 +85,8 @@ class OrdenTrabajoController extends Controller
             $query->whereBetween('created_at', [$filtroFechaInicio, $filtroFechaFin]);
         }
 
-        // Obtener los resultados
-        $ordenesTrabajo = $query->get();
+        // Obtener los resultados, de la más nueva a la más vieja
+        $ordenesTrabajo = $query->orderBy('created_at', 'desc')->orderBy('id', 'desc')->get();
 
         // Formatear la respuesta
         $ordenesFormatted = $ordenesTrabajo->map(function ($orden) {
