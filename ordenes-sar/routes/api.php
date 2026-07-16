@@ -60,5 +60,6 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
 
     Route::get('/ordenes-trabajo/{id}/mensajes', [MensajeController::class, 'index']);
     Route::post('/mensajes', [MensajeController::class, 'store']);
+    Route::put('/ordenes-trabajo/{id}/mensajes/visto', [MensajeController::class, 'marcarVisto']);
     Route::put('/ordenes-trabajo/{id}/aprobar', [OrdenTrabajoController::class, 'aprobarOrden']);
 });

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\SendMensajeNotificacionJob;
 use App\Mail\MensajeNotificacion;
 use App\Models\Mensaje;
+use App\Models\MensajeLectura;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -55,5 +56,27 @@ class MensajeController extends Controller
 
 
         return response()->json($mensaje, 201);
+    }
+
+    public function marcarVisto($id)
+    {
+        $existe = \App\Models\OrdenTrabajo::where('id', $id)->exists();
+        if (!$existe) {
+            return response()->json(['error' => 'Orden de trabajo no encontrada'], 404);
+        }
+
+        try {
+            MensajeLectura::updateOrCreate(
+                ['orden_trabajo_id' => $id, 'user_id' => auth()->id()],
+                ['last_read_at' => now()]
+            );
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Requests concurrentes pueden chocar contra el unique (orden, usuario): el visto ya quedó registrado
+            MensajeLectura::where('orden_trabajo_id', $id)
+                ->where('user_id', auth()->id())
+                ->update(['last_read_at' => now()]);
+        }
+
+        return response()->json(['ok' => true]);
     }
 }

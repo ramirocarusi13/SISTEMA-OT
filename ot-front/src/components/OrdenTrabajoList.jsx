@@ -1,4 +1,4 @@
-import { Button, DatePicker, Input, Modal, notification, Select, Table } from 'antd';
+import { Badge, Button, DatePicker, Input, Modal, notification, Select, Table } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import React, { useEffect, useState } from 'react';
@@ -523,6 +523,23 @@ const OrdenTrabajoList = () => {
         setMensajes(mensajesData);
         setIsOpenMensajesModal(true);
         setOrdenIdMensajes(ordenId)
+
+        // Marca el chat como visto y resetea el contador de no leídos, sin bloquear la apertura del modal.
+        fetch(`${APIURI}ordenes-trabajo/${ordenId}/mensajes/visto`, {
+            method: 'PUT',
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        })
+            .then(() => {
+                const resetearContador = (lista) =>
+                    lista.map((orden) =>
+                        orden.id === ordenId ? { ...orden, mensajes_no_leidos: 0 } : orden
+                    );
+                setOrdenes((prev) => resetearContador(Array.isArray(prev) ? prev : []));
+                setOrdenesSinFiltro((prev) => resetearContador(Array.isArray(prev) ? prev : []));
+            })
+            .catch((error) => console.error('Error al marcar mensajes como vistos:', error));
     };
     const grabarMensaje = async () => {
         const payload = {
@@ -643,7 +660,9 @@ const OrdenTrabajoList = () => {
                     <Button className=' ml-1' onClick={() => cargarDescripcion(orden.id)}>Descripción</Button>
 
 
-                    <Button className='ml-1' onClick={() => cargarMensajes(orden.id)}>Mensajes</Button>
+                    <Badge count={orden.mensajes_no_leidos} size="small" overflowCount={99} className='ml-1'>
+                        <Button onClick={() => cargarMensajes(orden.id)}>Mensajes</Button>
+                    </Badge>
 
                     {/* Ejemplo de orden */}
 

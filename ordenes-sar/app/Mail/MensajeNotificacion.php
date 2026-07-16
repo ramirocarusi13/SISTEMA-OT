@@ -24,7 +24,7 @@ class MensajeNotificacion extends Mailable
 
     public function build()
     {
-        return $this->subject('Nuevo mensaje en la Orden de Trabajo')
+        return $this->subject('Nuevo mensaje en la OT #' . $this->ordenTrabajo->id)
             ->view('emails.mensaje_notificacion');
     }
 }

@@ -38,6 +38,20 @@ class OrdenTrabajoController extends Controller
         $filtroFechaInicio = $request->input('fecha_inicio');
         $filtroFechaFin = $request->input('fecha_fin');
 
+        // Closure reutilizable para contar los mensajes no leídos por el usuario logueado en cada orden
+        $userLogueadoId = $userLogueado->id;
+        $withMensajesNoLeidos = function ($query) use ($userLogueadoId) {
+            $query->withCount(['mensajes as mensajes_no_leidos' => function ($q) use ($userLogueadoId) {
+                $q->where('usuario_id', '!=', $userLogueadoId)
+                    ->where('created_at', '>', function ($sub) use ($userLogueadoId) {
+                        $sub->selectRaw("COALESCE(MAX(last_read_at), '1900-01-01')")
+                            ->from('mensaje_lecturas')
+                            ->whereColumn('mensaje_lecturas.orden_trabajo_id', 'mensajes.orden_trabajo_id')
+                            ->where('mensaje_lecturas.user_id', $userLogueadoId);
+                    });
+            }]);
+        };
+
         // Construir consulta base dependiendo del usuario
         if ($departamentoId == 2) {  // Mantenimiento
             $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento', 'finalizadoPor']);
@@ -52,6 +66,8 @@ class OrdenTrabajoController extends Controller
                     $q->where('departamento_id', $departamentoId);
                 });
         }
+
+        $withMensajesNoLeidos($query);
 
         // Aplicar filtro por departamento si existe
         if (!empty($filtroDepartamento)) {
@@ -93,6 +109,7 @@ class OrdenTrabajoController extends Controller
                 'foto_finalizada' => $orden->foto_finalizada,
                 'finalizado_por' => $orden->finalizadoPor ? $orden->finalizadoPor->name : null,
                 'finalizado_por_id' => $orden->finalizado_por_id,
+                'mensajes_no_leidos' => (int) $orden->mensajes_no_leidos,
                 'created_at' => $orden->created_at,
                 'updated_at' => $orden->updated_at,
             ];

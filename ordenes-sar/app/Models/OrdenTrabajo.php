@@ -67,6 +67,18 @@ class OrdenTrabajo extends Model
     {
         return $this->belongsTo(Departamento::class, 'departamento_id');
     }
+
+    // Relación con los mensajes del chat de la orden
+    public function mensajes()
+    {
+        return $this->hasMany(Mensaje::class, 'orden_trabajo_id');
+    }
+
+    // Relación con los registros de lectura del chat (uno por usuario)
+    public function mensajeLecturas()
+    {
+        return $this->hasMany(MensajeLectura::class, 'orden_trabajo_id');
+    }
     public function getFotoFinalizadaAttribute($value)
     {
         return ArchivoOrden::url($value);
