@@ -1,12 +1,14 @@
 // Página de Reportes/KPIs de Órdenes de Trabajo (SPEC-prioridad-reportes.md §7.2).
-// Sin librerías de gráficos nuevas: las barras y el donut se resuelven con
-// divs/Tailwind y SVG inline, y las tablas/KPIs con componentes de AntD.
+// Dashboard de presentación: layout propio (no la cáscara app-shell/ot-list del
+// listado), pensado para proyectar. Sin librerías de gráficos nuevas: las barras
+// y el donut se resuelven con divs/Tailwind y SVG inline, y las tablas/KPIs con
+// componentes de AntD.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, DatePicker, Empty, Select, Skeleton, Table, Tabs, Tag, Tooltip } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { Alert, Button, DatePicker, Empty, Select, Skeleton, Table, Tag, Tooltip } from 'antd';
+import { ReloadOutlined, BarChartOutlined } from '@ant-design/icons';
+import { Link } from 'react-router-dom';
+import { FaArrowLeft } from 'react-icons/fa';
 import moment from 'moment';
-import Header from '../components/Header';
-import UserProfile from '../components/UserProfile';
 import {
     fetchDepartamentosApi,
     fetchOrdenesTrabajo,
@@ -31,6 +33,22 @@ const PRIORIDADES_ORDEN = ['critica', 'alta', 'media', 'baja'];
 
 const formatHoras = (valor) => (valor === null || valor === undefined ? '—' : `${valor} h`);
 const formatPct = (valor) => (valor === null || valor === undefined ? '—' : `${valor}%`);
+
+/** Umbral de color para el KPI de cumplimiento de SLA. */
+const slaVariant = (pct) => {
+    if (pct === null || pct === undefined) return 'neutral';
+    if (pct >= 90) return 'success';
+    if (pct >= 70) return 'warning';
+    return 'danger';
+};
+
+const RANGO_PRESETS = [
+    { label: 'Últimos 7 días', value: [moment().subtract(6, 'days'), moment()] },
+    { label: 'Últimos 30 días', value: [moment().subtract(29, 'days'), moment()] },
+    { label: 'Últimos 90 días', value: [moment().subtract(89, 'days'), moment()] },
+    { label: 'Este mes', value: [moment().startOf('month'), moment()] },
+    { label: 'Último año', value: [moment().subtract(1, 'year'), moment()] },
+];
 
 // ---------------------------------------------------------------------------
 // Sub-componentes de estado (loading/error/vacío) y de gráficos, todos locales
@@ -58,11 +76,22 @@ const EstadoAsync = ({ loading, error, isEmpty, onRetry, skeletonRows = 3, empty
     return children;
 };
 
-const KpiCard = ({ label, value, hint }) => (
-    <div className="reportes-kpi-card">
-        <span>{label}</span>
-        <strong>{value}</strong>
-        {hint && <small>{hint}</small>}
+const KpiCard = ({ label, value, hint, variant = 'neutral' }) => (
+    <div className={`dash-kpi-card dash-kpi-card--${variant}`}>
+        <span className="dash-kpi-card__label">{label}</span>
+        <strong className="dash-kpi-card__value">{value}</strong>
+        {hint && <small className="dash-kpi-card__hint">{hint}</small>}
+    </div>
+);
+
+/** Envoltorio visual consistente para cada panel del tablero (gráfico o tabla). */
+const DashPanel = ({ title, extra, children, className = '' }) => (
+    <div className={`dash-panel ${className}`}>
+        <div className="dash-panel__header">
+            <h3 className="dash-panel__title">{title}</h3>
+            {extra}
+        </div>
+        <div className="dash-panel__body">{children}</div>
     </div>
 );
 
@@ -181,6 +210,16 @@ const GraficoTendencia = ({ tendencia }) => {
     );
 };
 
+/** Banner de estado vacío honesto: en vez de un tablero lleno de ceros, explica y ofrece un atajo. */
+const DashboardVacio = ({ onAmpliarRango }) => (
+    <div className="dash-empty-banner">
+        <BarChartOutlined className="dash-empty-banner__icon" aria-hidden="true" />
+        <h2>No hay OTs creadas en el rango seleccionado</h2>
+        <p>Probá ampliar las fechas para ver el panorama completo.</p>
+        <Button type="primary" onClick={onAmpliarRango}>Ver último año</Button>
+    </div>
+);
+
 // ---------------------------------------------------------------------------
 // Página principal
 // ---------------------------------------------------------------------------
@@ -203,7 +242,6 @@ const Reportes = () => {
         : false;
     const esAnalista = usuario?.rol === 'analista';
 
-    const [tab, setTab] = useState('mi_departamento');
     const [rango, setRango] = useState([moment().subtract(29, 'days'), moment()]);
     const [departamentoId, setDepartamentoId] = useState(null);
     const [departamentos, setDepartamentos] = useState([]);
@@ -280,9 +318,7 @@ const Reportes = () => {
         setOtsLoading(false);
     }, [departamentoId]);
 
-    useEffect(() => {
-        if (tab === 'mi_departamento') cargarOtsActivas();
-    }, [tab, cargarOtsActivas]);
+    useEffect(() => { cargarOtsActivas(); }, [cargarOtsActivas]);
 
     // --- Performance MTTO: técnicos + tendencia ----------------------------
     const [tecnicos, setTecnicos] = useState([]);
@@ -321,15 +357,30 @@ const Reportes = () => {
     }, [params, agruparPor, esAnalista]);
 
     useEffect(() => {
-        if (tab === 'performance_mtto' && !esAnalista) {
+        if (!esAnalista) {
             cargarTecnicos();
             cargarTendencia();
         }
-    }, [tab, esAnalista, cargarTecnicos, cargarTendencia]);
+    }, [esAnalista, cargarTecnicos, cargarTendencia]);
 
     const kpis = resumen?.resumen;
     const coloresPorPrioridad = resumen?.prioridad_colores || {};
     const labelsPorPrioridad = resumen?.prioridades || {};
+
+    // El resumen es honesto: si no hay una sola OT creada en el rango, no tiene
+    // sentido mostrar KPIs y gráficos en cero (parece roto). Se avisa y se ofrece
+    // un atajo para ampliar el rango en vez de proyectar una pantalla vacía.
+    const totalPeriodo = useMemo(() => {
+        if (!kpis) return null;
+        const sumaPorEstado = Object.values(kpis.por_estado || {}).reduce((acc, v) => acc + (v || 0), 0);
+        if (sumaPorEstado > 0) return sumaPorEstado;
+        return (kpis.activas || 0) + (kpis.finalizadas || 0);
+    }, [kpis]);
+    const dashboardVacio = kpis && totalPeriodo === 0;
+
+    const scopeLabel = veTodosLosDepartamentos
+        ? (departamentoId ? (departamentos.find((d) => d.id === departamentoId)?.nombre || 'Departamento seleccionado') : 'Todos los departamentos')
+        : (usuario?.departamento?.nombre || 'Tu departamento');
 
     const columnasOtsActivas = [
         { title: 'N° Orden', dataIndex: 'id', key: 'id', className: 'text-center' },
@@ -389,182 +440,175 @@ const Reportes = () => {
         { title: 'Cumpl. SLA', dataIndex: 'cumplimiento_sla_pct', key: 'cumplimiento_sla_pct', className: 'text-center', render: formatPct },
     ];
 
-    const filtrosComunes = (
-        <div className="reportes-filtros">
-            <RangePicker
-                value={rango}
-                onChange={(fechas) => setRango(fechas && fechas.length === 2 ? fechas : [moment().subtract(29, 'days'), moment()])}
-                format="YYYY-MM-DD"
-                allowClear={false}
-                aria-label="Rango de fechas del reporte"
-            />
-            {veTodosLosDepartamentos && (
-                <Select
-                    placeholder="Todos los departamentos"
-                    aria-label="Filtrar por departamento"
-                    allowClear
-                    style={{ minWidth: 220 }}
-                    value={departamentoId}
-                    onChange={(value) => setDepartamentoId(value || null)}
-                    options={departamentos.map((d) => ({ value: d.id, label: d.nombre }))}
-                />
-            )}
-        </div>
-    );
-
-    const contenidoMiDepartamento = (
-        <div className="reportes-tab-content">
-            <EstadoAsync loading={resumenLoading} error={resumenError} isEmpty={false} onRetry={cargarResumen} skeletonRows={2}>
-                {kpis && kpis.sin_datos > 0 && (
-                    <Alert
-                        type="info"
-                        showIcon
-                        className="reportes-alert-sin-datos"
-                        message={`${kpis.sin_datos} OTs históricas no tienen fecha de asignación registrada y quedan fuera del promedio de respuesta.`}
-                    />
-                )}
-
-                <div className="reportes-kpi-grid">
-                    <KpiCard label="Activas" value={kpis?.activas ?? '—'} />
-                    <KpiCard label="Finalizadas" value={kpis?.finalizadas ?? '—'} />
-                    <KpiCard label="Vencidas" value={kpis?.vencidas ?? '—'} />
-                    <KpiCard label="Resp. prom." value={formatHoras(kpis?.tiempo_respuesta_prom)} hint={`mediana ${formatHoras(kpis?.tiempo_respuesta_mediana)}`} />
-                    <KpiCard label="Resol. prom." value={formatHoras(kpis?.tiempo_resolucion_prom)} hint={`mediana ${formatHoras(kpis?.tiempo_resolucion_mediana)}`} />
-                    <KpiCard label="Cumplimiento SLA" value={formatPct(kpis?.cumplimiento_sla_pct)} />
-                </div>
-
-                <div className="reportes-charts-row">
-                    <div className="reportes-chart-card">
-                        <h3 className="table-section-title">OTs por estado</h3>
-                        <BarraEstados porEstado={kpis?.por_estado} />
-                    </div>
-                    <div className="reportes-chart-card">
-                        <h3 className="table-section-title">OTs por prioridad</h3>
-                        <DonutPrioridad
-                            porPrioridad={kpis?.por_prioridad}
-                            coloresPorPrioridad={coloresPorPrioridad}
-                            labelsPorPrioridad={labelsPorPrioridad}
-                        />
-                    </div>
-                </div>
-            </EstadoAsync>
-
-            {veTodosLosDepartamentos && (
-                <div className="table-section">
-                    <h2 className="table-section-title">Comparativo por departamento</h2>
-                    <EstadoAsync
-                        loading={deptoLoading}
-                        error={deptoError}
-                        isEmpty={deptoRows.length === 0}
-                        onRetry={cargarDeptoRows}
-                        emptyDescription="No hay órdenes registradas en este rango."
-                    >
-                        <Table
-                            dataSource={deptoRows}
-                            columns={columnasDepartamentos}
-                            rowKey="departamento_id"
-                            pagination={false}
-                            size="small"
-                            scroll={{ x: 'max-content' }}
-                            className="modern-table"
-                        />
-                    </EstadoAsync>
-                </div>
-            )}
-
-            <div className="table-section">
-                <h2 className="table-section-title">OTs activas por prioridad</h2>
-                <EstadoAsync
-                    loading={otsLoading}
-                    error={otsError}
-                    isEmpty={otsActivas.length === 0}
-                    onRetry={cargarOtsActivas}
-                    emptyDescription="No hay órdenes activas."
-                >
-                    <Table
-                        dataSource={otsActivas}
-                        columns={columnasOtsActivas}
-                        rowKey="id"
-                        pagination={{ pageSize: 10 }}
-                        size="small"
-                        scroll={{ x: 'max-content' }}
-                        className="modern-table"
-                    />
-                </EstadoAsync>
-            </div>
-        </div>
-    );
-
-    const contenidoPerformanceMtto = (
-        <div className="reportes-tab-content">
-            <div className="table-section">
-                <h2 className="table-section-title">Performance por técnico</h2>
-                <EstadoAsync
-                    loading={tecnicosLoading}
-                    error={tecnicosError}
-                    isEmpty={tecnicos.length === 0}
-                    onRetry={cargarTecnicos}
-                    emptyDescription="No hay técnicos con OTs asignadas en este rango."
-                >
-                    <Table
-                        dataSource={tecnicos}
-                        columns={columnasTecnicos}
-                        rowKey="tecnico_id"
-                        pagination={{ pageSize: 10 }}
-                        size="small"
-                        scroll={{ x: 'max-content' }}
-                        className="modern-table"
-                    />
-                </EstadoAsync>
-            </div>
-
-            <div className="reportes-chart-card">
-                <div className="reportes-tendencia-header">
-                    <h3 className="table-section-title">Tendencia: creadas vs finalizadas</h3>
-                    <Select
-                        value={agruparPor}
-                        onChange={setAgruparPor}
-                        style={{ width: 140 }}
-                        options={[{ value: 'semana', label: 'Por semana' }, { value: 'mes', label: 'Por mes' }]}
-                    />
-                </div>
-                <EstadoAsync
-                    loading={tendenciaLoading}
-                    error={tendenciaError}
-                    isEmpty={tendencia.length === 0}
-                    onRetry={cargarTendencia}
-                >
-                    <GraficoTendencia tendencia={tendencia} />
-                </EstadoAsync>
-            </div>
-        </div>
-    );
-
-    const tabItems = [
-        { key: 'mi_departamento', label: 'Mi departamento', children: contenidoMiDepartamento },
-    ];
-    if (!esAnalista) {
-        tabItems.push({ key: 'performance_mtto', label: 'Performance MTTO', children: contenidoPerformanceMtto });
-    }
-
     return (
-        <div className="app-shell">
-            <main className="page-container">
-                <UserProfile />
-                <Header />
-
-                <div className="ot-list">
-                    <div className="ot-page-heading">
-                        <div>
-                            <p className="ot-eyebrow">Sistema OT</p>
-                            <h1>Reportes</h1>
-                        </div>
-                        {filtrosComunes}
+        <div className="dash-shell">
+            <div className="dash-page">
+                <header className="dash-topbar">
+                    <div className="dash-topbar__brand">
+                        <p className="dash-eyebrow">Sistema OT</p>
+                        <h1 className="dash-title">Tablero de Reportes</h1>
+                        <p className="dash-subtitle">
+                            {scopeLabel} · {rango?.[0]?.format('DD/MM/YYYY')} – {rango?.[1]?.format('DD/MM/YYYY')}
+                        </p>
                     </div>
+                    <div className="dash-topbar__controls">
+                        <RangePicker
+                            value={rango}
+                            onChange={(fechas) => setRango(fechas && fechas.length === 2 ? fechas : [moment().subtract(29, 'days'), moment()])}
+                            format="YYYY-MM-DD"
+                            allowClear={false}
+                            presets={RANGO_PRESETS}
+                            aria-label="Rango de fechas del reporte"
+                        />
+                        {veTodosLosDepartamentos && (
+                            <Select
+                                placeholder="Todos los departamentos"
+                                aria-label="Filtrar por departamento"
+                                allowClear
+                                style={{ minWidth: 220 }}
+                                value={departamentoId}
+                                onChange={(value) => setDepartamentoId(value || null)}
+                                options={departamentos.map((d) => ({ value: d.id, label: d.nombre }))}
+                            />
+                        )}
+                        <Link to="/home" className="dash-back-link">
+                            <FaArrowLeft aria-hidden="true" />
+                            Volver al sistema
+                        </Link>
+                    </div>
+                </header>
 
-                    <Tabs activeKey={tab} onChange={setTab} items={tabItems} />
-                </div>
-            </main>
+                <main className="dash-body">
+                    <EstadoAsync loading={resumenLoading} error={resumenError} isEmpty={false} onRetry={cargarResumen} skeletonRows={3}>
+                        {kpis && kpis.sin_datos > 0 && (
+                            <Alert
+                                type="info"
+                                showIcon
+                                className="dash-alert-sin-datos"
+                                message={`${kpis.sin_datos} OTs históricas no tienen fecha de asignación registrada y quedan fuera del promedio de respuesta.`}
+                            />
+                        )}
+
+                        {dashboardVacio ? (
+                            <DashboardVacio onAmpliarRango={() => setRango([moment().subtract(1, 'year'), moment()])} />
+                        ) : (
+                            <>
+                                <section className="dash-kpi-grid" aria-label="Indicadores principales">
+                                    <KpiCard label="Activas" value={kpis?.activas ?? '—'} />
+                                    <KpiCard label="Vencidas" value={kpis?.vencidas ?? '—'} variant={(kpis?.vencidas || 0) > 0 ? 'danger' : 'neutral'} />
+                                    <KpiCard label="Cumplimiento SLA" value={formatPct(kpis?.cumplimiento_sla_pct)} variant={slaVariant(kpis?.cumplimiento_sla_pct)} />
+                                    <KpiCard label="Resp. prom." value={formatHoras(kpis?.tiempo_respuesta_prom)} hint={`mediana ${formatHoras(kpis?.tiempo_respuesta_mediana)}`} />
+                                    <KpiCard label="Resol. prom." value={formatHoras(kpis?.tiempo_resolucion_prom)} hint={`mediana ${formatHoras(kpis?.tiempo_resolucion_mediana)}`} />
+                                    <KpiCard label="Finalizadas" value={kpis?.finalizadas ?? '—'} />
+                                </section>
+
+                                <section className="dash-charts-grid">
+                                    <DashPanel title="OTs por estado">
+                                        <BarraEstados porEstado={kpis?.por_estado} />
+                                    </DashPanel>
+                                    <DashPanel title="OTs por prioridad">
+                                        <DonutPrioridad
+                                            porPrioridad={kpis?.por_prioridad}
+                                            coloresPorPrioridad={coloresPorPrioridad}
+                                            labelsPorPrioridad={labelsPorPrioridad}
+                                        />
+                                    </DashPanel>
+                                </section>
+                            </>
+                        )}
+                    </EstadoAsync>
+
+                    {veTodosLosDepartamentos && (
+                        <DashPanel title="Comparativo por departamento" className="dash-panel--table">
+                            <EstadoAsync
+                                loading={deptoLoading}
+                                error={deptoError}
+                                isEmpty={deptoRows.length === 0}
+                                onRetry={cargarDeptoRows}
+                                emptyDescription="No hay órdenes registradas en este rango."
+                            >
+                                <Table
+                                    dataSource={deptoRows}
+                                    columns={columnasDepartamentos}
+                                    rowKey="departamento_id"
+                                    pagination={false}
+                                    size="small"
+                                    scroll={{ x: 'max-content' }}
+                                    className="modern-table"
+                                />
+                            </EstadoAsync>
+                        </DashPanel>
+                    )}
+
+                    <DashPanel title="OTs activas por prioridad" className="dash-panel--table">
+                        <EstadoAsync
+                            loading={otsLoading}
+                            error={otsError}
+                            isEmpty={otsActivas.length === 0}
+                            onRetry={cargarOtsActivas}
+                            emptyDescription="No hay órdenes activas."
+                        >
+                            <Table
+                                dataSource={otsActivas}
+                                columns={columnasOtsActivas}
+                                rowKey="id"
+                                pagination={{ pageSize: 10 }}
+                                size="small"
+                                scroll={{ x: 'max-content' }}
+                                className="modern-table"
+                            />
+                        </EstadoAsync>
+                    </DashPanel>
+
+                    {!esAnalista && (
+                        <section className="dash-section">
+                            <h2 className="dash-section-title">Performance de mantenimiento</h2>
+                            <div className="dash-mtto-grid">
+                                <DashPanel title="Por técnico" className="dash-panel--table">
+                                    <EstadoAsync
+                                        loading={tecnicosLoading}
+                                        error={tecnicosError}
+                                        isEmpty={tecnicos.length === 0}
+                                        onRetry={cargarTecnicos}
+                                        emptyDescription="No hay técnicos con OTs asignadas en este rango."
+                                    >
+                                        <Table
+                                            dataSource={tecnicos}
+                                            columns={columnasTecnicos}
+                                            rowKey="tecnico_id"
+                                            pagination={{ pageSize: 10 }}
+                                            size="small"
+                                            scroll={{ x: 'max-content' }}
+                                            className="modern-table"
+                                        />
+                                    </EstadoAsync>
+                                </DashPanel>
+
+                                <DashPanel
+                                    title="Tendencia: creadas vs finalizadas"
+                                    extra={(
+                                        <Select
+                                            value={agruparPor}
+                                            onChange={setAgruparPor}
+                                            style={{ width: 140 }}
+                                            options={[{ value: 'semana', label: 'Por semana' }, { value: 'mes', label: 'Por mes' }]}
+                                        />
+                                    )}
+                                >
+                                    <EstadoAsync
+                                        loading={tendenciaLoading}
+                                        error={tendenciaError}
+                                        isEmpty={tendencia.length === 0}
+                                        onRetry={cargarTendencia}
+                                    >
+                                        <GraficoTendencia tendencia={tendencia} />
+                                    </EstadoAsync>
+                                </DashPanel>
+                            </div>
+                        </section>
+                    )}
+                </main>
+            </div>
         </div>
     );
 };

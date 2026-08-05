@@ -12,11 +12,8 @@ const Header = () => {
                 <FaClipboardList />
                 Órdenes de Trabajo
             </NavLink>
-            {/* Se abre en una pestaña aparte para no perder el listado de OTs de fondo */}
             <NavLink
                 to="/reportes"
-                target="_blank"
-                rel="noopener noreferrer"
                 className={({ isActive }) => `ot-header-link ${isActive ? 'is-active' : ''}`}
             >
                 <FaChartBar />
