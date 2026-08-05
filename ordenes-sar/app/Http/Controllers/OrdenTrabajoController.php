@@ -10,11 +10,13 @@ use App\Models\Notificacion;
 use App\Models\OrdenTrabajo;
 use App\Models\User;
 use App\Support\ArchivoOrden;
+use App\Support\PrioridadOT;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\Rule;
 
 class OrdenTrabajoController extends Controller
 {
@@ -37,6 +39,10 @@ class OrdenTrabajoController extends Controller
         $filtroUsuarioMantenimiento = $request->input('usuario_mantenimiento_id');
         $filtroFechaInicio = $request->input('fecha_inicio');
         $filtroFechaFin = $request->input('fecha_fin');
+        // Filtros nuevos de prioridad (§5 de OrdenTrabajoController::index en la spec)
+        $filtroPrioridad = array_filter((array) $request->input('prioridad', []));
+        $filtroCategoria = array_filter((array) $request->input('categoria', []));
+        $filtroSoloVencidas = $request->boolean('solo_vencidas');
 
         // Closure reutilizable para contar los mensajes no leídos por el usuario logueado en cada orden
         $userLogueadoId = $userLogueado->id;
@@ -85,8 +91,28 @@ class OrdenTrabajoController extends Controller
             $query->whereBetween('created_at', [$filtroFechaInicio, $filtroFechaFin]);
         }
 
-        // Obtener los resultados, de la más nueva a la más vieja
-        $ordenesTrabajo = $query->orderBy('created_at', 'desc')->orderBy('id', 'desc')->get();
+        // Filtros nuevos de prioridad/categoría (multi-select) y "solo vencidas"
+        if (!empty($filtroPrioridad)) {
+            $query->whereIn('prioridad', $filtroPrioridad);
+        }
+
+        if (!empty($filtroCategoria)) {
+            $query->whereIn('categoria', $filtroCategoria);
+        }
+
+        if ($filtroSoloVencidas) {
+            // Misma definición de "vencida" que en los reportes (§5): activa, sin asignar
+            // todavía y ya pasó el vencimiento de su SLA de primera respuesta.
+            $query->where('estado', '!=', 'finalizada')
+                ->whereNull('fecha_asignacion')
+                ->whereRaw(\App\Support\ReporteQueries::vencimientoSql() . ' < ?', [Carbon::now('America/Argentina/Buenos_Aires')]);
+        }
+
+        // Orden por defecto: prioridad_orden ASC (más urgente primero), luego más nueva a más vieja
+        $ordenesTrabajo = $query->orderBy('prioridad_orden', 'asc')
+            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->get();
 
         // Formatear la respuesta
         $ordenesFormatted = $ordenesTrabajo->map(function ($orden) {
@@ -112,6 +138,15 @@ class OrdenTrabajoController extends Controller
                 'mensajes_no_leidos' => (int) $orden->mensajes_no_leidos,
                 'created_at' => $orden->created_at,
                 'updated_at' => $orden->updated_at,
+                // Prioridad / categoría / SLA (ver App\Support\PrioridadOT y accessors de OrdenTrabajo)
+                'categoria' => $orden->categoria,
+                'prioridad' => $orden->prioridad,
+                'prioridad_orden' => $orden->prioridad_orden,
+                'es_seguridad' => (bool) $orden->es_seguridad,
+                'sla_estado' => $orden->sla_estado,
+                'sla_vence_at' => $orden->sla_vence_at,
+                'cumplio_sla' => $orden->cumplio_sla,
+                'fecha_asignacion' => $orden->fecha_asignacion,
             ];
         });
 
@@ -245,6 +280,20 @@ class OrdenTrabajoController extends Controller
                     $orden->fecha_estimacion = $request->fecha_estimacion; //$fecha->format('Y-m-d H:i:s.v');
 
                 }
+
+                // FIX de trazabilidad (bug preexistente, ver SPEC §4): la columna fecha_asignacion
+                // existía pero nunca se seteaba, dejando sin datos las métricas de tiempo de
+                // respuesta. Se guarda solo la PRIMERA asignación (no pisa reasignaciones
+                // posteriores, que es lo que necesita el reporte de tiempo de respuesta).
+                if (is_null($orden->fecha_asignacion)) {
+                    $orden->fecha_asignacion = Carbon::now('America/Argentina/Buenos_Aires');
+                }
+            }
+
+            // Primera transición fuera de 'creada' (cualquier estado nuevo): marca de
+            // "primera respuesta" para las métricas de reportes (§4/§5 de la spec).
+            if ($estadoAnterior === 'creada' && $request->estado !== 'creada' && is_null($orden->fecha_primera_respuesta)) {
+                $orden->fecha_primera_respuesta = Carbon::now('America/Argentina/Buenos_Aires');
             }
 
             // Actualizar estado
@@ -392,7 +441,13 @@ class OrdenTrabajoController extends Controller
 
             // Cambia el estado a "aprobada" y guarda la fecha de aprobación
             $orden->estado = 'aprobada';
-            $orden->fecha_aprobacion = now();
+            $orden->fecha_aprobacion = Carbon::now('America/Argentina/Buenos_Aires');
+
+            // FIX de trazabilidad (§4 de la spec): también es una transición fuera de 'creada'
+            if (is_null($orden->fecha_primera_respuesta)) {
+                $orden->fecha_primera_respuesta = Carbon::now('America/Argentina/Buenos_Aires');
+            }
+
             $orden->save();
 
             // Envía una notificación
@@ -405,6 +460,94 @@ class OrdenTrabajoController extends Controller
         }
     }
 
+    /**
+     * Override manual de la prioridad calculada automáticamente (§1 de la spec).
+     * Solo admin, gerente o usuarios de MTTO (departamento_id = 2) pueden overridear;
+     * el creador (analista) no puede. Si se BAJA la prioridad (orden numérico mayor,
+     * o sea menos urgente que la calculada) hay que justificarlo con prioridad_motivo.
+     * Si la orden está marcada es_seguridad, no se puede bajar de 'critica'.
+     */
+    public function updatePrioridad(Request $request, $id)
+    {
+        $userLogueado = auth()->user();
+
+        // Solo admin (rol legacy, hoy no insertable pero se deja el chequeo por compatibilidad),
+        // gerente o usuarios del departamento de Mantenimiento (id 2) pueden overridear la prioridad
+        $puedeOverridear = $userLogueado->rol === 'admin'
+            || $userLogueado->rol === Roles::GERENTE
+            || (int) $userLogueado->departamento_id === 2;
+
+        if (!$puedeOverridear) {
+            return response()->json(['error' => 'No tiene permisos para modificar la prioridad de esta orden'], 403);
+        }
+
+        $orden = OrdenTrabajo::with('creador')->findOrFail($id);
+
+        // Además del rol, hay que respetar el alcance por departamento: un gerente solo
+        // puede tocar órdenes de su propio departamento (las de MTTO ven todas), igual
+        // que en index(). Sin esto se podría modificar y leer una OT ajena por su id.
+        $esMantenimiento = (int) $userLogueado->departamento_id === 2;
+        $departamentoCreador = $orden->creador ? (int) $orden->creador->departamento_id : null;
+
+        if (!$esMantenimiento && $userLogueado->rol !== 'admin' && $departamentoCreador !== (int) $userLogueado->departamento_id) {
+            return response()->json(['error' => 'No tiene permisos sobre esta orden'], 403);
+        }
+
+        $validado = $request->validate([
+            'prioridad' => ['required', 'string', Rule::in(PrioridadOT::prioridades())],
+            'prioridad_motivo' => 'nullable|string',
+        ]);
+
+        // Prioridad que le correspondería según su categoría/es_seguridad (baseline para saber si "baja")
+        $calculada = PrioridadOT::calcular($orden->categoria, (bool) $orden->es_seguridad);
+        $ordenNuevo = PrioridadOT::PRIORIDAD_ORDEN[$validado['prioridad']];
+
+        // Es "bajar" la prioridad cuando el nuevo orden numérico es mayor (menos urgente)
+        // que el actual o que el que le correspondía por categoría/seguridad. Se toma el
+        // más urgente de los dos como baseline para que bajar un override previo también
+        // exija justificación.
+        $baseline = min((int) $orden->prioridad_orden, $calculada['prioridad_orden']);
+        $esBajaDePrioridad = $ordenNuevo > $baseline;
+
+        if ($esBajaDePrioridad && empty($validado['prioridad_motivo'])) {
+            return response()->json([
+                'error' => 'prioridad_motivo es obligatorio al bajar la prioridad calculada',
+            ], 422);
+        }
+
+        // Si la orden está marcada como de seguridad, nunca puede bajar de 'critica'
+        if ($orden->es_seguridad && $validado['prioridad'] !== PrioridadOT::CRITICA) {
+            return response()->json([
+                'error' => 'Esta orden está marcada como de seguridad: no se puede bajar de prioridad crítica',
+            ], 422);
+        }
+
+        $orden->prioridad = $validado['prioridad'];
+        $orden->prioridad_orden = $ordenNuevo;
+        $orden->prioridad_definida_por_id = $userLogueado->id;
+
+        // Solo se pisa el motivo si vino uno nuevo, para no borrar la justificación
+        // de un override anterior cuando se sube la prioridad sin comentario.
+        if (!empty($validado['prioridad_motivo'])) {
+            $orden->prioridad_motivo = $validado['prioridad_motivo'];
+        }
+
+        $orden->save();
+
+        // Payload acotado: no se devuelve el modelo completo (comentarios, mensaje de
+        // finalización, etc.) en un endpoint cuyo objeto es solo la prioridad.
+        return response()->json([
+            'id' => $orden->id,
+            'prioridad' => $orden->prioridad,
+            'prioridad_orden' => $orden->prioridad_orden,
+            'prioridad_motivo' => $orden->prioridad_motivo,
+            'prioridad_definida_por_id' => $orden->prioridad_definida_por_id,
+            'es_seguridad' => (bool) $orden->es_seguridad,
+            'sla_estado' => $orden->sla_estado,
+            'sla_vence_at' => $orden->sla_vence_at,
+            'cumplio_sla' => $orden->cumplio_sla,
+        ], 200);
+    }
 
     protected function sendNotification($creadorId, $ordenId, $estadoAnterior, $estadoNuevo, $mensaje = null)
     {
@@ -476,6 +619,12 @@ class OrdenTrabajoController extends Controller
             'usuario_mantenimiento_id' => 'nullable|exists:users,id',
             'estado' => 'required|string',
             'archivos.*' => 'required|file|mimes:jpeg,png,jpg,gif,svg,pdf,doc,docx,xls,xlsx|max:99120',
+            // Categoría y marca de seguridad (§1 de la spec): determinan la prioridad automática.
+            // Es "sometimes" y no "required" para no romper clientes que todavía no la mandan:
+            // en ese caso se cae al default histórico ('averia' => prioridad media), igual que
+            // el default de la columna. El front nuevo sí la exige por UI.
+            'categoria' => ['sometimes', 'string', Rule::in(PrioridadOT::categorias())],
+            'es_seguridad' => 'boolean',
         ]);
 
         // |file|mimes:jpeg,png,jpg,gif,svg,pdf,doc,docx,xls,xlsx|max:28120
@@ -483,7 +632,15 @@ class OrdenTrabajoController extends Controller
         try {
             $userLogueado = auth()->user();
 
+            // Calcular la prioridad automática a partir de la categoría y la marca de seguridad
+            $categoria = $request->input('categoria', PrioridadOT::CAT_AVERIA);
+            $esSeguridad = $request->boolean('es_seguridad');
+            $prioridadCalculada = PrioridadOT::calcular($categoria, $esSeguridad);
+
             // Crear la orden de trabajo
+            // OJO: 'descripcion' no es una columna de ordenes_trabajo (vive en la tabla
+            // `descripciones`); se pasa igual porque Eloquent ignora las claves no fillable/
+            // inexistentes, tal como ya se comportaba antes de este cambio (no es alcance de esta tarea).
             $orden = OrdenTrabajo::create([
                 'titulo' => $request->titulo,
                 'descripcion' => $request->descripcion,
@@ -494,6 +651,10 @@ class OrdenTrabajoController extends Controller
                 'fecha_estimacion' => $request->fecha_estimacion,
                 'fecha_finalizacion' => $request->fecha_finalizacion,
                 'fecha_aprobacion' => $userLogueado->rol == 'gerente' ? now() : null,
+                'categoria' => $categoria,
+                'es_seguridad' => $esSeguridad,
+                'prioridad' => $prioridadCalculada['prioridad'],
+                'prioridad_orden' => $prioridadCalculada['prioridad_orden'],
             ]);
 
             // Verificar y guardar archivos subidos
@@ -601,5 +762,33 @@ class OrdenTrabajoController extends Controller
             Log::error('Error al agregar archivos a la orden de trabajo: ' . $e->getMessage());
             return response()->json(['error' => 'Error al agregar archivos'], 500);
         }
+    }
+
+    /**
+     * Catálogos de categorías/prioridades/SLA (§7 de la spec) para alimentar el
+     * modal de creación y los filtros del front, sin duplicar la tabla de mapeo en JS.
+     */
+    public function catalogos()
+    {
+        // Se incluye la prioridad resultante de cada categoría para que el front pueda
+        // mostrar el preview en vivo sin duplicar el mapeo de PrioridadOT en JS.
+        $categorias = collect(PrioridadOT::categorias())->map(fn ($valor) => [
+            'value' => $valor,
+            'label' => PrioridadOT::CATEGORIA_LABELS[$valor],
+            'prioridad' => PrioridadOT::CATEGORIA_PRIORIDAD[$valor],
+        ])->values();
+
+        $prioridades = collect(PrioridadOT::prioridades())->map(fn ($valor) => [
+            'value' => $valor,
+            'label' => PrioridadOT::PRIORIDAD_LABELS[$valor],
+            'color' => PrioridadOT::PRIORIDAD_COLORES[$valor],
+            'orden' => PrioridadOT::PRIORIDAD_ORDEN[$valor],
+        ])->values();
+
+        return response()->json([
+            'categorias' => $categorias,
+            'prioridades' => $prioridades,
+            'sla_horas' => config('ot.sla_horas'),
+        ]);
     }
 }

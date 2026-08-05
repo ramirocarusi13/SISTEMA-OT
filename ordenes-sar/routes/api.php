@@ -10,6 +10,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\DescripcionController;
 use App\Http\Controllers\NotificacionesController;
 use App\Http\Controllers\MensajeController;
+use App\Http\Controllers\ReporteController;
 
 /*
 |--------------------------------------------------------------------------- 
@@ -62,4 +63,18 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
     Route::post('/mensajes', [MensajeController::class, 'store']);
     Route::put('/ordenes-trabajo/{id}/mensajes/visto', [MensajeController::class, 'marcarVisto']);
     Route::put('/ordenes-trabajo/{id}/aprobar', [OrdenTrabajoController::class, 'aprobarOrden']);
+
+    // Override manual de prioridad (§1/§6 de SPEC-prioridad-reportes.md)
+    Route::put('/ordenes-trabajo/{id}/prioridad', [OrdenTrabajoController::class, 'updatePrioridad']);
+
+    // Catálogos de categorías/prioridades/SLA para el front (§7)
+    Route::get('/ot/catalogos', [OrdenTrabajoController::class, 'catalogos']);
+
+    // Reportes/KPIs (§6)
+    Route::prefix('reportes')->group(function () {
+        Route::get('/resumen', [ReporteController::class, 'resumen']);
+        Route::get('/departamentos', [ReporteController::class, 'departamentos']);
+        Route::get('/mantenimiento', [ReporteController::class, 'mantenimiento']);
+        Route::get('/tendencia', [ReporteController::class, 'tendencia']);
+    });
 });

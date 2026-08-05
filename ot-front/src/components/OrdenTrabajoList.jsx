@@ -1,4 +1,4 @@
-import { Badge, Button, DatePicker, Input, Modal, notification, Select, Table } from 'antd';
+import { Badge, Button, DatePicker, Input, Modal, notification, Select, Table, Tag, Tooltip } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import React, { useEffect, useState } from 'react';
@@ -11,6 +11,9 @@ import { departamentosArr } from '../Utils/Departamentos';
 import ModalFinalizarOrdenTrabajo from '../components/ModalFinalizarOrdenTrabajo';
 import ModalMostrarFotoFinalizada from './ModalMostrarFotoFinalizada';
 import ModalAgregarArchivos from './ModalAgregarArchivos';
+import OrdenTrabajoFilter from './OrdenTrabajoFilter';
+import { fetchCatalogosOT, actualizarPrioridadOT } from '../Utils/otApi';
+import { ordenarPorPrioridad, getPrioridadInfo, getSlaEstadoUi } from '../Utils/prioridad';
 
 
 import LoadingIcon from './LoadingIcon';
@@ -62,6 +65,16 @@ const OrdenTrabajoList = () => {
 
     const [isOpenFinalizarModal, setIsOpenFinalizarModal] = useState(false);
 
+    // --- Prioridad / SLA (SPEC-prioridad-reportes.md §1, §2 y §7.1) ---
+    const [catalogos, setCatalogos] = useState({ categorias: [], prioridades: [], sla_horas: {} });
+    const [selectedPrioridades, setSelectedPrioridades] = useState([]);
+    const [selectedCategorias, setSelectedCategorias] = useState([]);
+    const [soloVencidas, setSoloVencidas] = useState(false);
+    const [isOpenPrioridadModal, setIsOpenPrioridadModal] = useState(false);
+    const [ordenPrioridad, setOrdenPrioridad] = useState(null); // orden completa sobre la que se overridea
+    const [nuevaPrioridad, setNuevaPrioridad] = useState(null);
+    const [motivoPrioridad, setMotivoPrioridad] = useState('');
+    const [guardandoPrioridad, setGuardandoPrioridad] = useState(false);
 
     // const printRef = useRef();
 
@@ -147,6 +160,13 @@ const OrdenTrabajoList = () => {
         if (selectedDateRange?.length === 2) {
             queryParams.append('fecha_inicio', selectedDateRange[0].format('YYYY-MM-DD'));
             queryParams.append('fecha_fin', selectedDateRange[1].format('YYYY-MM-DD'));
+        }
+
+        // Filtros nuevos de prioridad/categoría (multi-select) y "solo vencidas" (§7.1)
+        selectedPrioridades.forEach((valor) => queryParams.append('prioridad[]', valor));
+        selectedCategorias.forEach((valor) => queryParams.append('categoria[]', valor));
+        if (soloVencidas) {
+            queryParams.append('solo_vencidas', '1');
         }
 
         try {
@@ -345,7 +365,21 @@ const OrdenTrabajoList = () => {
         fetchDepartamentos();
         fetchUsuariosMantenimientoFiltro();
         FetchData();
+        cargarCatalogosOT();
     }, []);
+
+    // Catálogo de categorías/prioridades/SLA (§1, §2 y §7.1): labels, colores y horas de
+    // SLA se piden siempre al backend, nunca se hardcodean acá.
+    const cargarCatalogosOT = async () => {
+        const { ok, data } = await fetchCatalogosOT();
+        if (ok) {
+            setCatalogos({
+                categorias: data.categorias || [],
+                prioridades: data.prioridades || [],
+                sla_horas: data.sla_horas || {},
+            });
+        }
+    };
 
 
     useEffect(() => {
@@ -608,6 +642,56 @@ const OrdenTrabajoList = () => {
 
 
 
+    // Solo admin, gerente o cualquier usuario de MTTO (departamento_id = 2) puede overridear
+    // la prioridad calculada automáticamente (§1 de la spec, validado también en el backend).
+    const puedeCambiarPrioridad = usuario?.rol === 'admin' || usuario?.rol === 'gerente' || parseInt(usuario?.departamento_id) === 2;
+
+    const abrirModalPrioridad = (orden) => {
+        setOrdenPrioridad(orden);
+        setNuevaPrioridad(orden.prioridad || null);
+        setMotivoPrioridad('');
+        setIsOpenPrioridadModal(true);
+    };
+
+    const cerrarModalPrioridad = () => {
+        setIsOpenPrioridadModal(false);
+        setOrdenPrioridad(null);
+        setNuevaPrioridad(null);
+        setMotivoPrioridad('');
+    };
+
+    const guardarPrioridad = async () => {
+        if (!nuevaPrioridad) {
+            notification.error({
+                message: 'Error de validación',
+                description: 'Debe seleccionar una prioridad.',
+            });
+            return;
+        }
+
+        setGuardandoPrioridad(true);
+        const { ok, error } = await actualizarPrioridadOT(ordenPrioridad.id, {
+            prioridad: nuevaPrioridad,
+            prioridad_motivo: motivoPrioridad || null,
+        });
+        setGuardandoPrioridad(false);
+
+        if (ok) {
+            notification.success({
+                message: 'Prioridad actualizada',
+                description: `La orden N° ${ordenPrioridad.id} ahora tiene prioridad ${nuevaPrioridad}.`,
+            });
+            cerrarModalPrioridad();
+            FetchData();
+        } else {
+            // Ej.: 422 "prioridad_motivo obligatorio al bajar" o "no se puede bajar de crítica si es_seguridad"
+            notification.error({
+                message: 'No se pudo actualizar la prioridad',
+                description: error,
+            });
+        }
+    };
+
     const columns = [
         {
             title: 'N° Orden',
@@ -621,6 +705,38 @@ const OrdenTrabajoList = () => {
         { title: 'Turno', dataIndex: 'turno', key: 'turno' },
         { title: 'Departamento Creador', dataIndex: 'departamento_creador', key: 'departamento_creador' },
         { title: 'Mantenimiento a Cargo', dataIndex: 'usuario_mantenimiento', key: 'usuario_mantenimiento' },
+        {
+            title: 'Prioridad',
+            dataIndex: 'prioridad',
+            key: 'prioridad',
+            className: 'text-center',
+            render: (prioridad, orden) => {
+                const info = getPrioridadInfo(catalogos.prioridades, prioridad);
+                return (
+                    <div className="ot-prioridad-cell">
+                        <Tag color={info?.color?.tag || 'default'}>{(info?.label || prioridad || 'Media').toUpperCase()}</Tag>
+                        {orden.es_seguridad && <Tag color="red" className="ot-seguridad-tag">SEGURIDAD</Tag>}
+                    </div>
+                );
+            },
+        },
+        {
+            title: 'SLA',
+            dataIndex: 'sla_estado',
+            key: 'sla_estado',
+            className: 'text-center',
+            render: (slaEstado, orden) => {
+                const ui = getSlaEstadoUi(slaEstado);
+                const tooltipTexto = orden.sla_vence_at
+                    ? `${ui.label} — vence ${moment(orden.sla_vence_at).format('DD/MM/YYYY HH:mm')}`
+                    : ui.label;
+                return (
+                    <Tooltip title={tooltipTexto}>
+                        <span className="ot-sla-dot" style={{ backgroundColor: ui.color }} aria-label={tooltipTexto} />
+                    </Tooltip>
+                );
+            },
+        },
         {
             title: 'Fecha de Creación', // Nueva columna
             dataIndex: 'created_at',
@@ -659,6 +775,11 @@ const OrdenTrabajoList = () => {
                     )}
                     <Button className=' ml-1' onClick={() => cargarDescripcion(orden.id)}>Descripción</Button>
 
+                    {puedeCambiarPrioridad && (
+                        <Button className='ml-1' onClick={() => abrirModalPrioridad(orden)}>
+                            Cambiar prioridad
+                        </Button>
+                    )}
 
                     <Badge count={orden.mensajes_no_leidos} size="small" overflowCount={99} className='ml-1'>
                         <Button onClick={() => cargarMensajes(orden.id)}>Mensajes</Button>
@@ -969,6 +1090,18 @@ const OrdenTrabajoList = () => {
                             format="YYYY-MM-DD"
                         />
 
+                        {/* Filtros por prioridad/categoría y "solo vencidas" (§7.1) */}
+                        <OrdenTrabajoFilter
+                            categorias={catalogos.categorias}
+                            prioridades={catalogos.prioridades}
+                            prioridadSeleccionada={selectedPrioridades}
+                            categoriaSeleccionada={selectedCategorias}
+                            soloVencidas={soloVencidas}
+                            onChangePrioridad={setSelectedPrioridades}
+                            onChangeCategoria={setSelectedCategorias}
+                            onChangeSoloVencidas={setSoloVencidas}
+                        />
+
                         {/* Botón para Aplicar Filtros */}
                         <Button type="primary" onClick={applyFilters} icon={<SearchOutlined />}>
                             Aplicar Filtros
@@ -985,7 +1118,7 @@ const OrdenTrabajoList = () => {
                 <>
                     <h2 className="table-section-title">Pendientes a Aprobación</h2>
                     <Table
-                        dataSource={filtrarOrdenesPorEstado('creada')}
+                        dataSource={ordenarPorPrioridad(filtrarOrdenesPorEstado('creada'))}
                         columns={columns}
                         rowKey="id"
                         pagination={{ pageSize: 10 }}
@@ -1001,7 +1134,7 @@ const OrdenTrabajoList = () => {
                 <>
                     <h2 className="table-section-title">Pendientes</h2>
                     <Table
-                        dataSource={filtrarOrdenesPorEstado('aprobada')}
+                        dataSource={ordenarPorPrioridad(filtrarOrdenesPorEstado('aprobada'))}
                         columns={columns}
                         rowKey="id"
                         pagination={{ pageSize: 10 }}
@@ -1017,7 +1150,7 @@ const OrdenTrabajoList = () => {
                     <h2 className="table-section-title">Aprobadas no Asignadas</h2>
                     {/* filtrarOrdenesPorEstadoYDepartamento('aprobada') */}
                     <Table
-                        dataSource={filtrarOrdenesPorEstadoYDepartamento('aprobada')}
+                        dataSource={ordenarPorPrioridad(filtrarOrdenesPorEstadoYDepartamento('aprobada'))}
                         columns={[
                             ...columns, // Añade las columnas ya existentes
                             {
@@ -1043,7 +1176,7 @@ const OrdenTrabajoList = () => {
                 <>
                     <h2 className="table-section-title">En Proceso</h2>
                     <Table
-                        dataSource={filtrarOrdenesPorEstado('asignada')}
+                        dataSource={ordenarPorPrioridad(filtrarOrdenesPorEstado('asignada'))}
                         columns={[
                             ...columns, // Keep existing columns
                             {
@@ -1067,7 +1200,7 @@ const OrdenTrabajoList = () => {
                 <>
                     <h2 className="table-section-title">En Proceso</h2>
                     <Table
-                        dataSource={filtrarOrdenesAsignadasPorUser('asignada')}
+                        dataSource={ordenarPorPrioridad(filtrarOrdenesAsignadasPorUser('asignada'))}
                         columns={[
                             ...columns, // Keep existing columns
                             {
@@ -1093,7 +1226,7 @@ const OrdenTrabajoList = () => {
                 <>
                     <h2 className="table-section-title">Finalizadas</h2>
                     <Table
-                        dataSource={filtrarOrdenesPorEstado('finalizada')}
+                        dataSource={ordenarPorPrioridad(filtrarOrdenesPorEstado('finalizada'))}
                         columns={[
                             ...columns,
                             {
@@ -1116,7 +1249,7 @@ const OrdenTrabajoList = () => {
                 <>
                     <h2 className="table-section-title">Finalizadas</h2>
                     <Table
-                        dataSource={filtrarOrdenesAsignadasPorUser('finalizada')}
+                        dataSource={ordenarPorPrioridad(filtrarOrdenesAsignadasPorUser('finalizada'))}
                         columns={[
                             ...columns,
                             {
@@ -1140,7 +1273,7 @@ const OrdenTrabajoList = () => {
                 <>
                     <h2 className="table-section-title">Órdenes de otros GL</h2>
                     <Table
-                        dataSource={filtrarOrdenesOtrosGL()}
+                        dataSource={ordenarPorPrioridad(filtrarOrdenesOtrosGL())}
                         columns={[
                             ...columns, // Keep existing columns
                             {
@@ -1275,6 +1408,48 @@ const OrdenTrabajoList = () => {
                     style={{ width: '100%' }}
                 />
             </Modal>
+
+            {/* Override manual de prioridad (§1 y §7.1): solo admin/gerente/MTTO */}
+            <Modal
+                title={ordenPrioridad ? `Cambiar prioridad — Orden N° ${ordenPrioridad.id}` : 'Cambiar prioridad'}
+                open={isOpenPrioridadModal}
+                onCancel={cerrarModalPrioridad}
+                onOk={guardarPrioridad}
+                okText="Guardar"
+                cancelText="Cancelar"
+                confirmLoading={guardandoPrioridad}
+            >
+                {ordenPrioridad?.es_seguridad && (
+                    <p className="ot-prioridad-warning">
+                        Esta orden está marcada como de <strong>seguridad</strong>: no se puede bajar de prioridad crítica.
+                    </p>
+                )}
+                <div className="form-field">
+                    <label className="form-label">Nueva prioridad</label>
+                    <Select
+                        placeholder="Seleccione una prioridad"
+                        style={{ width: '100%' }}
+                        value={nuevaPrioridad}
+                        onChange={(value) => setNuevaPrioridad(value)}
+                    >
+                        {catalogos.prioridades.map((p) => (
+                            <Select.Option key={p.value} value={p.value}>
+                                {p.label}
+                            </Select.Option>
+                        ))}
+                    </Select>
+                </div>
+                <div className="form-field" style={{ marginTop: 14 }}>
+                    <label className="form-label">Motivo (obligatorio si se baja la prioridad)</label>
+                    <Input.TextArea
+                        rows={3}
+                        value={motivoPrioridad}
+                        onChange={(e) => setMotivoPrioridad(e.target.value)}
+                        placeholder="Justifique el cambio de prioridad"
+                    />
+                </div>
+            </Modal>
+
             <ModalAgregarArchivos
                 isOpen={isModalOpenModalAgregar}
                 setIsOpen={setIsModalOpenModalAgregar}

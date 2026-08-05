@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-d
 import { ConfigProvider } from 'antd';
 import Home from './pages/Home';   // Cambia la ruta según tu estructura
 import Login from './pages/LoginPage'; // Cambia la ruta según tu estructura
+import Reportes from './pages/Reportes';
 import './index.css'; // Asegúrate de que este archivo contenga las directivas de Tailwind
 
 const theme = {
@@ -63,6 +64,7 @@ const App = () => {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/home" element={<Home />} />
+          <Route path="/reportes" element={<Reportes />} />
           <Route path="/" element={<Navigate to="/login" />} />
         </Routes>
       </Router>

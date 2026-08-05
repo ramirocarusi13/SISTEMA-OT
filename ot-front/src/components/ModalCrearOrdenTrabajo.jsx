@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getItem } from '../storage/UserAsyncStorage';
-import { Modal, Button, notification, Upload, Spin } from 'antd';
+import { Modal, Button, notification, Upload, Spin, Select, Checkbox, Alert, Skeleton } from 'antd';
 import { InboxOutlined } from '@ant-design/icons';
+import { fetchCatalogosOT } from '../Utils/otApi';
+import { calcularPrioridadCliente, getPrioridadInfo } from '../Utils/prioridad';
 
 const APIURI = import.meta.env.VITE_API
 
@@ -15,6 +17,15 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
     const [usuarioMantenimientoId, setUsuarioMantenimientoId] = useState('');
     const [subiendoArchivos, setSubiendoArchivos] = useState(false);
     const [loading, setLoading] = useState(false); // Estado para el spinner
+
+    // Catálogo de categorías/prioridades/SLA (§1 y §7.1) y selección del creador.
+    const [categorias, setCategorias] = useState([]);
+    const [prioridades, setPrioridades] = useState([]);
+    const [slaHoras, setSlaHoras] = useState({});
+    const [categoria, setCategoria] = useState(null);
+    const [esSeguridad, setEsSeguridad] = useState(false);
+    const [catalogosLoading, setCatalogosLoading] = useState(false);
+    const [catalogosError, setCatalogosError] = useState(null);
 
     useEffect(() => {
         const fetchUsuariosMantenimiento = async () => {
@@ -30,17 +41,53 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
                 const data = await response.json();
                 setUsuariosMantenimiento(data);
             } catch (error) {
-                console.error('Error al obtener usuarios de mantenimiento:', error);
+                notification.error({
+                    message: 'Error',
+                    description: 'No se pudo obtener la lista de usuarios de mantenimiento.',
+                });
             }
+        };
+
+        const cargarCatalogos = async () => {
+            setCatalogosLoading(true);
+            setCatalogosError(null);
+            const { ok, data, error } = await fetchCatalogosOT();
+            if (ok) {
+                setCategorias(data.categorias || []);
+                setPrioridades(data.prioridades || []);
+                setSlaHoras(data.sla_horas || {});
+            } else {
+                setCatalogosError(error || 'No se pudieron cargar las categorías.');
+            }
+            setCatalogosLoading(false);
         };
 
         if (isOpen) {
             fetchUsuariosMantenimiento();
+            cargarCatalogos();
         }
     }, [isOpen]);
 
+    // Prioridad resultante en vivo, según el mapeo que sirve el catálogo del backend
+    // (§7.1: el creador no la elige directamente).
+    const prioridadCalculada = useMemo(
+        () => (categoria ? calcularPrioridadCliente(categoria, esSeguridad, categorias) : null),
+        [categoria, esSeguridad, categorias]
+    );
+    const prioridadInfo = getPrioridadInfo(prioridades, prioridadCalculada);
+    const horasSla = prioridadCalculada ? slaHoras[prioridadCalculada] : null;
+
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        if (!categoria) {
+            notification.error({
+                message: 'Error de validación',
+                description: 'Debe seleccionar una categoría para poder crear la orden.',
+            });
+            return;
+        }
+
         setLoading(true); // Activar el spinner
 
         const formData = new FormData();
@@ -49,6 +96,8 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
         formData.append('usuario_id', 1);
         formData.append('usuario_mantenimiento_id', usuarioMantenimientoId);
         formData.append('estado', 'creada');
+        formData.append('categoria', categoria);
+        formData.append('es_seguridad', esSeguridad ? '1' : '0');
 
         archivos.forEach((item) => {
             formData.append('archivos[]', item.originFileObj || item);
@@ -77,6 +126,8 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
                 setDescripcion('');
                 setArchivos([]);
                 setUsuarioMantenimientoId('');
+                setCategoria(null);
+                setEsSeguridad(false);
             } else {
                 // Intentamos mostrar el mensaje real del backend (ej. validación 422 de archivos)
                 let description = 'Hubo un error al crear la orden. Inténtalo de nuevo.';
@@ -116,6 +167,8 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
         setDescripcion('');
         setArchivos([]);
         setUsuarioMantenimientoId('');
+        setCategoria(null);
+        setEsSeguridad(false);
     };
 
     const propsUpload = {
@@ -158,6 +211,51 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
                                     required
                                 />
                             </div>
+
+                            <div className="form-field">
+                                <label className="form-label" htmlFor="ot-categoria">Categoría</label>
+                                {catalogosLoading ? (
+                                    <Skeleton.Input active size="large" block />
+                                ) : catalogosError ? (
+                                    <Alert type="error" showIcon message={catalogosError} />
+                                ) : (
+                                    <Select
+                                        id="ot-categoria"
+                                        placeholder="Seleccione una categoría"
+                                        value={categoria}
+                                        onChange={(value) => setCategoria(value)}
+                                        options={categorias.map((cat) => ({ value: cat.value, label: cat.label }))}
+                                        style={{ width: '100%' }}
+                                    />
+                                )}
+                            </div>
+
+                            <div className="form-field">
+                                <Checkbox
+                                    checked={esSeguridad}
+                                    onChange={(e) => setEsSeguridad(e.target.checked)}
+                                >
+                                    Involucra seguridad (persona o instalación en riesgo)
+                                </Checkbox>
+                            </div>
+
+                            {prioridadCalculada && (
+                                <Alert
+                                    className="ot-prioridad-preview"
+                                    showIcon
+                                    type={
+                                        prioridadCalculada === 'critica' ? 'error'
+                                            : prioridadCalculada === 'alta' ? 'warning'
+                                            : 'info'
+                                    }
+                                    message={
+                                        <span>
+                                            Prioridad asignada: <strong>{(prioridadInfo?.label || prioridadCalculada).toUpperCase()}</strong>
+                                            {horasSla ? ` — objetivo de respuesta ${horasSla} h` : ''}
+                                        </span>
+                                    }
+                                />
+                            )}
 
                             <div className="form-field">
                                 <label className="form-label">Subir Archivos</label>

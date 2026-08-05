@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
+import moment from 'moment';
 
 const APIURI = import.meta.env.VITE_API
+
+// El endpoint /ordenes-trabajo/{id} devuelve el modelo completo, donde las fechas
+// se serializan en ISO. Se formatean acá para que la hoja impresa siga mostrando
+// una fecha legible y no el timestamp crudo.
+const formatearFecha = (valor) => (valor ? moment(valor).format('DD/MM/YYYY HH:mm') : '_________');
 
 export default function ImprimirOrden({ ordenId, setOrdenId }) {
     const [ordenData, setOrdenData] = useState(null);
@@ -113,11 +119,11 @@ export default function ImprimirOrden({ ordenId, setOrdenId }) {
             <div className="grid grid-cols-2 gap-2 mb-2">
                 <div className="flex flex-col">
                     <label className="text-gray-500">Fecha de programación:</label>
-                    <span className="border-b border-gray-300 text-gray-700 py-0.5">{ordenData?.fecha_estimacion || '_________'}</span>
+                    <span className="border-b border-gray-300 text-gray-700 py-0.5">{formatearFecha(ordenData?.fecha_estimacion)}</span>
                 </div>
                 <div className="flex flex-col">
                     <label className="text-gray-500">Fecha de realizacion:</label>
-                    <span className="border-b border-gray-300 text-gray-700 py-0.5">{ordenData?.fecha_finalizacion || '_________'}</span>
+                    <span className="border-b border-gray-300 text-gray-700 py-0.5">{formatearFecha(ordenData?.fecha_finalizacion)}</span>
                 </div>
             </div>
 
