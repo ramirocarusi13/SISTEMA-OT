@@ -85,7 +85,9 @@ const ModalFinalizarOrdenTrabajo = ({ isOpen, setIsOpen, ordenId, onFinalizarSuc
             } else {
                 notification.error({
                     message: "Error del servidor",
-                    description: result.message || "Hubo un problema al finalizar la orden.",
+                    description: response.status === 403
+                        ? "No tenés permisos para realizar esta acción."
+                        : (result.message || "Hubo un problema al finalizar la orden."),
                 });
                 // Limpiamos la foto para que el próximo intento no reenvíe la que falló
                 setArchivo(null);

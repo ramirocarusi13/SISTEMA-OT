@@ -9,6 +9,7 @@ use App\Models\Descripcion;
 use App\Models\Notificacion;
 use App\Models\OrdenTrabajo;
 use App\Models\User;
+use App\Support\AlcanceOrdenes;
 use App\Support\ArchivoOrden;
 use App\Support\PrioridadOT;
 use Illuminate\Http\Request;
@@ -49,8 +50,12 @@ class OrdenTrabajoController extends Controller
         $filtroSoloVencidas = $request->boolean('solo_vencidas');
 
         // Closure reutilizable para contar los mensajes no leídos por el usuario logueado en cada orden
+        // y el total de mensajes de la orden (el reporte lo usa para distinguir "tiene conversación
+        // pero ya la leí" de "no tiene ningún mensaje", que el contador de no leídos no diferencia).
         $userLogueadoId = $userLogueado->id;
         $withMensajesNoLeidos = function ($query) use ($userLogueadoId) {
+            $query->withCount('mensajes as mensajes_total');
+
             $query->withCount(['mensajes as mensajes_no_leidos' => function ($q) use ($userLogueadoId) {
                 $q->where('usuario_id', '!=', $userLogueadoId)
                     ->where('created_at', '>', function ($sub) use ($userLogueadoId) {
@@ -62,20 +67,15 @@ class OrdenTrabajoController extends Controller
             }]);
         };
 
-        // Construir consulta base dependiendo del usuario
-        if ($departamentoId == 2) {  // Mantenimiento
-            $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento', 'finalizadoPor']);
-        } elseif ($rol == 'gerente') {
-            $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento', 'finalizadoPor'])
-                ->whereHas('creador', function ($q) use ($departamentoId) {
-                    $q->where('departamento_id', $departamentoId);
-                });
-        } else {
-            $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento', 'finalizadoPor'])
-                ->whereHas('creador', function ($q) use ($departamentoId) {
-                    $q->where('departamento_id', $departamentoId);
-                });
-        }
+        // Construir consulta base dependiendo del usuario. El alcance (qué OTs
+        // puede ver cada quien) vive centralizado en App\Support\AlcanceOrdenes
+        // para no repetir la regla acá, en MensajeController y en ReporteController.
+        // Para los roles/departamentos existentes esto arma EXACTAMENTE la misma
+        // query que antes (MTTO ve todo; el resto solo lo del propio departamento,
+        // antes duplicado en las ramas 'gerente' y 'else'); lo único nuevo es la
+        // rama de Seguridad e Higiene (SyH), que antes no existía.
+        $query = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripcion', 'creador.departamento', 'finalizadoPor']);
+        $query = AlcanceOrdenes::aplicar($query, $userLogueado);
 
         $withMensajesNoLeidos($query);
 
@@ -144,6 +144,7 @@ class OrdenTrabajoController extends Controller
                 'finalizado_por' => $orden->finalizadoPor ? $orden->finalizadoPor->name : null,
                 'finalizado_por_id' => $orden->finalizado_por_id,
                 'mensajes_no_leidos' => (int) $orden->mensajes_no_leidos,
+                'mensajes_total' => (int) $orden->mensajes_total,
                 'created_at' => $orden->created_at,
                 'updated_at' => $orden->updated_at,
                 // Prioridad / categoría / SLA (ver App\Support\PrioridadOT y accessors de OrdenTrabajo)
@@ -179,9 +180,20 @@ class OrdenTrabajoController extends Controller
     }
     public function getFotoFinalizada($id)
     {
-        $ordenTrabajo = OrdenTrabajo::find($id);
+        $ordenTrabajo = OrdenTrabajo::with('creador')->find($id);
 
-        if ($ordenTrabajo && $ordenTrabajo->foto_finalizada) {
+        if (!$ordenTrabajo) {
+            Log::warning("No se encontró foto finalizada para la orden con ID: $id");
+            return response()->json(['message' => 'Foto no encontrada'], 404);
+        }
+
+        // Mismo alcance que show()/index(): antes cualquier usuario autenticado
+        // podía leer la foto de cualquier OT por id, sin importar su departamento.
+        if (!AlcanceOrdenes::puedeVer(auth()->user(), $ordenTrabajo)) {
+            return response()->json(['error' => 'No tiene permisos para ver esta orden'], 403);
+        }
+
+        if ($ordenTrabajo->foto_finalizada) {
             $fotoNombre = $ordenTrabajo->getRawOriginal('foto_finalizada');
 
             return response()->json([
@@ -207,6 +219,13 @@ class OrdenTrabajoController extends Controller
             // Buscar la orden de trabajo con sus relaciones
             $orden = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripciones', 'finalizadoPor'])
                 ->findOrFail($id); // Lanza una excepción si no se encuentra la orden
+
+            // Antes acá no se validaba alcance: cualquier usuario autenticado
+            // podía leer cualquier OT por id (secuencial), sin importar su
+            // departamento. Se aplica el mismo criterio que index()/mensajes.
+            if (!AlcanceOrdenes::puedeVer(auth()->user(), $orden)) {
+                return response()->json(['error' => 'No tiene permisos para ver esta orden'], 403);
+            }
 
             // Formatear la respuesta
             $ordenFormatted = [

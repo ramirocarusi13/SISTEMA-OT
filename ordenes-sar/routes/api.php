@@ -13,9 +13,9 @@ use App\Http\Controllers\MensajeController;
 use App\Http\Controllers\ReporteController;
 
 /*
-|--------------------------------------------------------------------------- 
-| API Routes 
-|--------------------------------------------------------------------------- 
+|---------------------------------------------------------------------------
+| API Routes
+|---------------------------------------------------------------------------
 */
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
@@ -39,33 +39,49 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
     Route::get('/ordenes-trabajo/{id}/foto-finalizada', [OrdenTrabajoController::class, 'getFotoFinalizada']);
     Route::get('/ordenes-trabajo', [OrdenTrabajoController::class, 'index']);
 
-
-    Route::delete('/ordenes-trabajo/{id}', [OrdenTrabajoController::class, 'destroy']);
-	Route::post('/ordenes-trabajo/{ordenId}/agregar-archivos', [OrdenTrabajoController::class, 'agregarArchivos']);
-    Route::put('/ordenes-trabajo/{id}/finalizar', [OrdenTrabajoController::class, 'finalizarOrdenTrabajo']);
-    Route::put('/ordenes-trabajo/{id}/finalizar2', [OrdenTrabajoController::class, 'finalizarOrdenTrabajo2']);
-
-
-
-
-
     Route::get('/ordenes-trabajo/{id}', [OrdenTrabajoController::class, 'show']);
-    Route::post('/ordenes-trabajo', [OrdenTrabajoController::class, 'store']);
-    Route::put('/ordenes-trabajo/{id}/estado', [OrdenTrabajoController::class, 'updateEstado']);
     Route::get('/notificaciones', [NotificacionesController::class, 'index']);
+    // marcarTodasLeidas escribe, pero SOLO sobre la bandeja del propio usuario
+    // (where usuario_creador_id = auth id): no altera OTs ni notifica a nadie, así
+    // que queda fuera del bloqueo (si no, SyH tendría la campanita trabada).
     Route::put('/notificaciones/marcar-todas-leidas', [NotificacionesController::class, 'marcarTodasLeidas']);
     Route::get('/usuarios', [UserController::class, 'index']);
     Route::get('/ordenes-trabajo/{id}/descripciones', [DescripcionController::class, 'getDescripcionesByOrdenId']);
-    Route::post('/notificaciones', [NotificacionesController::class, 'enviarNotificacion']);
-    Route::post('/ordenes-trabajo/{id}/descripciones', [DescripcionController::class, 'store']);
 
     Route::get('/ordenes-trabajo/{id}/mensajes', [MensajeController::class, 'index']);
-    Route::post('/mensajes', [MensajeController::class, 'store']);
-    Route::put('/ordenes-trabajo/{id}/mensajes/visto', [MensajeController::class, 'marcarVisto']);
-    Route::put('/ordenes-trabajo/{id}/aprobar', [OrdenTrabajoController::class, 'aprobarOrden']);
 
-    // Override manual de prioridad (§1/§6 de SPEC-prioridad-reportes.md)
-    Route::put('/ordenes-trabajo/{id}/prioridad', [OrdenTrabajoController::class, 'updatePrioridad']);
+    // -------------------------------------------------------------------
+    // Rutas de ESCRITURA sobre OTs/mensajes/descripciones: el departamento
+    // Seguridad e Higiene (SyH) tiene acceso de solo lectura, así que todas
+    // quedan detrás de 'bloquear.escritura.seguridad' (ver
+    // App\Http\Middleware\BloquearEscrituraSeguridad). Cualquier endpoint de
+    // escritura nuevo debe agregarse ACÁ para quedar cubierto por defecto.
+    // -------------------------------------------------------------------
+    Route::middleware(['bloquear.escritura.seguridad'])->group(function () {
+        Route::delete('/ordenes-trabajo/{id}', [OrdenTrabajoController::class, 'destroy']);
+        Route::post('/ordenes-trabajo/{ordenId}/agregar-archivos', [OrdenTrabajoController::class, 'agregarArchivos']);
+        Route::put('/ordenes-trabajo/{id}/finalizar', [OrdenTrabajoController::class, 'finalizarOrdenTrabajo']);
+        Route::put('/ordenes-trabajo/{id}/finalizar2', [OrdenTrabajoController::class, 'finalizarOrdenTrabajo2']);
+
+        // NOTA: store() queda bloqueado para SyH bajo el supuesto acordado de
+        // que, por ahora, SyH no crea OTs propias (solo consulta las que le
+        // competen). Si eso cambia, sacar esta ruta de este grupo (o sumar
+        // una excepción puntual) para volver a permitir la creación.
+        Route::post('/ordenes-trabajo', [OrdenTrabajoController::class, 'store']);
+
+        Route::put('/ordenes-trabajo/{id}/estado', [OrdenTrabajoController::class, 'updateEstado']);
+        Route::post('/ordenes-trabajo/{id}/descripciones', [DescripcionController::class, 'store']);
+        Route::post('/mensajes', [MensajeController::class, 'store']);
+        Route::put('/ordenes-trabajo/{id}/mensajes/visto', [MensajeController::class, 'marcarVisto']);
+        Route::put('/ordenes-trabajo/{id}/aprobar', [OrdenTrabajoController::class, 'aprobarOrden']);
+
+        // Override manual de prioridad (§1/§6 de SPEC-prioridad-reportes.md)
+        Route::put('/ordenes-trabajo/{id}/prioridad', [OrdenTrabajoController::class, 'updatePrioridad']);
+
+        // Crea una notificación dirigida a OTRO usuario sobre una OT: es escritura
+        // hacia afuera, no bandeja propia, así que también queda bloqueada.
+        Route::post('/notificaciones', [NotificacionesController::class, 'enviarNotificacion']);
+    });
 
     // Catálogos de categorías/prioridades/SLA para el front (§7)
     Route::get('/ot/catalogos', [OrdenTrabajoController::class, 'catalogos']);

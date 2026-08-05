@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OrdenTrabajo;
 use App\Models\User;
+use App\Support\AlcanceOrdenes;
 use App\Support\PrioridadOT;
 use App\Support\ReporteQueries;
 use Carbon\Carbon;
@@ -75,7 +76,9 @@ class ReporteController extends Controller
     {
         $user = auth()->user();
 
-        if ($user->rol === 'analista') {
+        // Performance por técnico: oculto para 'analista' y también para SyH
+        // (solo lectura del tablero de seguridad, no del rendimiento de MTTO).
+        if ($user->rol === 'analista' || AlcanceOrdenes::esSeguridad($user)) {
             return response()->json(['error' => 'No tiene permisos para ver este reporte'], 403);
         }
 
@@ -141,11 +144,11 @@ class ReporteController extends Controller
             'fecha_fin' => 'nullable|date|after_or_equal:fecha_inicio',
         ]);
 
-        $query = $this->aplicarAlcance(OrdenTrabajo::query(), $user);
+        $query = AlcanceOrdenes::aplicar(OrdenTrabajo::query(), $user);
 
         $filtroDepartamento = $validado['departamento_id'] ?? null;
         if (!empty($filtroDepartamento)) {
-            $veTodosLosDepartamentos = $this->veTodosLosDepartamentos($user);
+            $veTodosLosDepartamentos = AlcanceOrdenes::veTodosLosDepartamentos($user);
 
             // Un gerente (fuera de MTTO) o un analista solo pueden pedir SU propio
             // departamento; si piden otro, 403 (§6 de la spec)
@@ -161,41 +164,15 @@ class ReporteController extends Controller
         return $query;
     }
 
-    /**
-     * Filtro de alcance por permisos (§6 de la spec), reutilizado por los 4
-     * endpoints. Reglas:
-     * - departamento_id = 2 (MTTO) o rol = 'admin' -> ven TODOS los departamentos
-     *   (no se agrega ningún whereHas).
-     * - Cualquier otro usuario (gerente, group_leader fuera de MTTO, analista)
-     *   -> solo ve las OTs cuyo creador pertenece a su propio departamento.
-     *
-     * OJO: el rol 'admin' no es un valor insertable hoy en users.rol (el enum de
-     * la migración original solo permite gerente/group_leader/team_member/analista),
-     * pero se deja el chequeo por si en el futuro se habilita, sin que rompa nada
-     * mientras tanto (nunca va a matchear). El acceso total real hoy lo dan los
-     * usuarios de MTTO (departamento_id = 2).
-     */
-    private function aplicarAlcance($query, User $user)
-    {
-        if ($this->veTodosLosDepartamentos($user)) {
-            return $query;
-        }
-
-        $departamentoId = $user->departamento_id;
-
-        return $query->whereHas('creador', function ($q) use ($departamentoId) {
-            $q->where('departamento_id', $departamentoId);
-        });
-    }
-
-    /**
-     * True si el usuario ve todos los departamentos: MTTO (departamento_id = 2)
-     * o rol 'admin' (ver nota de aplicarAlcance() sobre por qué se deja el check).
-     */
-    private function veTodosLosDepartamentos(User $user): bool
-    {
-        return (int) $user->departamento_id === 2 || $user->rol === 'admin';
-    }
+    // El filtro de alcance por permisos (antes duplicado acá como
+    // aplicarAlcance()/veTodosLosDepartamentos()) vive centralizado en
+    // App\Support\AlcanceOrdenes, compartido con OrdenTrabajoController y
+    // MensajeController. Reglas (§6 de la spec + SyH):
+    // - MTTO (App\Support\Departamentos::esMantenimiento) o rol 'admin' (legacy,
+    //   no insertable hoy) -> ven TODOS los departamentos.
+    // - Seguridad e Higiene (SyH) -> solo las OTs de seguridad (de cualquier
+    //   departamento) + las propias, NO el consolidado de toda la planta.
+    // - Cualquier otro usuario -> solo las OTs de su propio departamento.
 
     /**
      * Resuelve fecha_inicio/fecha_fin del request; default: últimos 30 días

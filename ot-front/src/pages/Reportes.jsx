@@ -4,7 +4,7 @@
 // y el donut se resuelven con divs/Tailwind y SVG inline, y las tablas/KPIs con
 // componentes de AntD.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, DatePicker, Drawer, Empty, Select, Skeleton, Table, Tag, Tooltip } from 'antd';
+import { Alert, Badge, Button, DatePicker, Drawer, Empty, Select, Skeleton, Table, Tag, Tooltip } from 'antd';
 import { ReloadOutlined, BarChartOutlined, MessageOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { FaArrowLeft } from 'react-icons/fa';
@@ -499,11 +499,46 @@ const Reportes = () => {
             title: 'Mensajes',
             key: 'mensajes',
             className: 'text-center',
-            render: (_, orden) => (
-                <Button size="small" icon={<MessageOutlined />} onClick={() => abrirMensajes(orden)}>
-                    Ver
-                </Button>
-            ),
+            // Badge rojo con los no leídos (igual que el listado de OTs) para detectar de un
+            // vistazo dónde aclararon algo. Si la OT tiene conversación pero ya está leída,
+            // se muestra el total en gris: el contador de no leídos por sí solo no distingue
+            // "sin mensajes" de "mensajes ya leídos".
+            render: (_, orden) => {
+                const noLeidos = orden.mensajes_no_leidos || 0;
+                const total = orden.mensajes_total || 0;
+
+                const boton = (
+                    <Button size="small" icon={<MessageOutlined />} onClick={() => abrirMensajes(orden)}>
+                        Ver
+                    </Button>
+                );
+
+                if (noLeidos > 0) {
+                    return (
+                        <Tooltip title={`${noLeidos} mensaje${noLeidos > 1 ? 's' : ''} sin leer de ${total}`}>
+                            <Badge count={noLeidos} size="small" overflowCount={99}>
+                                {boton}
+                            </Badge>
+                        </Tooltip>
+                    );
+                }
+
+                if (total > 0) {
+                    return (
+                        <Tooltip title={`${total} mensaje${total > 1 ? 's' : ''}, sin novedades`}>
+                            <Badge count={total} size="small" overflowCount={99} color="#94a3b8">
+                                {boton}
+                            </Badge>
+                        </Tooltip>
+                    );
+                }
+
+                return (
+                    <Tooltip title="Sin mensajes">
+                        <span className="dash-sin-mensajes">{boton}</span>
+                    </Tooltip>
+                );
+            },
         },
     ];
 

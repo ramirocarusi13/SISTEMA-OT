@@ -20,8 +20,10 @@ import LoadingIcon from './LoadingIcon';
 
 const APIURI = import.meta.env.VITE_API
 
-
-
+// Mensaje genérico para cuando una acción de escritura queda bloqueada por el
+// backend (403) pese a que la UI ya la ocultó/deshabilitó (ej. Seguridad e
+// Higiene, solo lectura) — red flaky, sesión vieja en otra pestaña, etc.
+const MENSAJE_SIN_PERMISO = 'No tenés permisos para realizar esta acción.';
 
 const OrdenTrabajoList = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -128,6 +130,8 @@ const OrdenTrabajoList = () => {
                     description: "La orden se eliminó correctamente.",
                 });
                 FetchData(); // Refresca la lista de órdenes
+            } else if (response.status === 403) {
+                throw new Error(MENSAJE_SIN_PERMISO);
             } else {
                 throw new Error("No se pudo eliminar la orden.");
             }
@@ -283,6 +287,8 @@ const OrdenTrabajoList = () => {
                     setFechaEstimacion(null);
                     setOrdenIdAsignar(null); // Reinicia el ID de la orden asignada
                     setUsuariosMantenimiento([]); // Limpia la lista de usuarios del modal
+                } else if (response.status === 403) {
+                    throw new Error(MENSAJE_SIN_PERMISO);
                 } else {
                     throw new Error('Error al asignar usuario');
                 }
@@ -290,7 +296,9 @@ const OrdenTrabajoList = () => {
             .catch(error => {
                 notification.error({
                     message: 'Error',
-                    description: 'Hubo un error al asignar el usuario. Inténtelo de nuevo.',
+                    description: error.message === MENSAJE_SIN_PERMISO
+                        ? error.message
+                        : 'Hubo un error al asignar el usuario. Inténtelo de nuevo.',
                 });
             });
     };
@@ -446,7 +454,9 @@ const OrdenTrabajoList = () => {
         } else {
             notification.error({
                 message: 'Error',
-                description: 'Hubo un error al aprobar la orden. Inténtelo de nuevo.',
+                description: response.status === 403
+                    ? MENSAJE_SIN_PERMISO
+                    : 'Hubo un error al aprobar la orden. Inténtelo de nuevo.',
             });
         }
     };
@@ -499,7 +509,7 @@ const OrdenTrabajoList = () => {
         } else {
             notification.error({
                 message: 'Error',
-                description: response.error,
+                description: response.status === 403 ? MENSAJE_SIN_PERMISO : (res?.error || 'Ocurrió un error inesperado.'),
             });
         }
     };
@@ -529,6 +539,8 @@ const OrdenTrabajoList = () => {
                     description: "La orden ha sido finalizada correctamente.",
                 });
                 FetchData(); // Refresca la lista de órdenes
+            } else if (response.status === 403) {
+                throw new Error(MENSAJE_SIN_PERMISO);
             } else {
                 throw new Error("No se pudo finalizar la orden.");
             }
@@ -559,23 +571,31 @@ const OrdenTrabajoList = () => {
         setOrdenIdMensajes(ordenId)
 
         // Marca el chat como visto y resetea el contador de no leídos, sin bloquear la apertura del modal.
-        fetch(`${APIURI}ordenes-trabajo/${ordenId}/mensajes/visto`, {
-            method: 'PUT',
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
-        })
-            .then(() => {
-                const resetearContador = (lista) =>
-                    lista.map((orden) =>
-                        orden.id === ordenId ? { ...orden, mensajes_no_leidos: 0 } : orden
-                    );
-                setOrdenes((prev) => resetearContador(Array.isArray(prev) ? prev : []));
-                setOrdenesSinFiltro((prev) => resetearContador(Array.isArray(prev) ? prev : []));
+        // Seguridad e Higiene no puede escribir (este endpoint también está bloqueado por el
+        // backend): se evita el llamado de entrada en vez de dejar que vuelva un 403 de más.
+        if (puedeEscribir) {
+            fetch(`${APIURI}ordenes-trabajo/${ordenId}/mensajes/visto`, {
+                method: 'PUT',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
             })
-            .catch((error) => console.error('Error al marcar mensajes como vistos:', error));
+                .then(() => {
+                    const resetearContador = (lista) =>
+                        lista.map((orden) =>
+                            orden.id === ordenId ? { ...orden, mensajes_no_leidos: 0 } : orden
+                        );
+                    setOrdenes((prev) => resetearContador(Array.isArray(prev) ? prev : []));
+                    setOrdenesSinFiltro((prev) => resetearContador(Array.isArray(prev) ? prev : []));
+                })
+                .catch((error) => console.error('Error al marcar mensajes como vistos:', error));
+        }
     };
     const grabarMensaje = async () => {
+        if (!puedeEscribir) {
+            return;
+        }
+
         const payload = {
             mensaje: mensajeCambio, orden_trabajo_id: ordenIdMensajes
         }
@@ -619,6 +639,8 @@ const OrdenTrabajoList = () => {
                     description: "La orden de trabajo se eliminó correctamente.",
                 });
                 FetchData(); // Actualiza la lista de órdenes
+            } else if (response.status === 403) {
+                throw new Error(MENSAJE_SIN_PERMISO);
             } else {
                 throw new Error("No se pudo eliminar la orden.");
             }
@@ -642,9 +664,17 @@ const OrdenTrabajoList = () => {
 
 
 
+    // Seguridad e Higiene (SyH) tiene acceso de solo lectura: ve las OTs de seguridad
+    // de cualquier departamento más las suyas, pero no puede actuar sobre ninguna. El
+    // flag ya viene resuelto por el backend (GET /api/user); si no vino (usuario
+    // cacheado de un login anterior a este cambio) se trata como true, que es el
+    // comportamiento de siempre para todos los demás roles.
+    const puedeEscribir = usuario?.puede_escribir !== false;
+
     // Solo admin, gerente o cualquier usuario de MTTO (departamento_id = 2) puede overridear
     // la prioridad calculada automáticamente (§1 de la spec, validado también en el backend).
-    const puedeCambiarPrioridad = usuario?.rol === 'admin' || usuario?.rol === 'gerente' || parseInt(usuario?.departamento_id) === 2;
+    const puedeCambiarPrioridad = puedeEscribir &&
+        (usuario?.rol === 'admin' || usuario?.rol === 'gerente' || parseInt(usuario?.departamento_id) === 2);
 
     const abrirModalPrioridad = (orden) => {
         setOrdenPrioridad(orden);
@@ -749,7 +779,7 @@ const OrdenTrabajoList = () => {
             key: 'accion',
             render: (text, orden) => (
                 <div className="action-row">
-                    {orden.estado === 'creada' && usuario?.rol === 'gerente' && (
+                    {puedeEscribir && orden.estado === 'creada' && usuario?.rol === 'gerente' && (
                         <Button
                             type="primary"
                             onClick={() => aprobarOrden(orden.id)}
@@ -757,12 +787,12 @@ const OrdenTrabajoList = () => {
                             Aprobar
                         </Button>
                     )}
-                    {orden.estado === 'aprobada' && parseInt(usuario?.departamento_id) === 2 && usuario?.rol !== 'group_leader' && (
+                    {puedeEscribir && orden.estado === 'aprobada' && parseInt(usuario?.departamento_id) === 2 && usuario?.rol !== 'group_leader' && (
                         <Button type="primary" onClick={() => abrirModalAsignar(orden.id)}>
                             Asignar
                         </Button>
                     )}
-                    {orden.estado === 'asignada' && (
+                    {puedeEscribir && orden.estado === 'asignada' && (
                         (usuario?.rol === 'group_leader' && parseInt(orden.usuario_mantenimiento_id) === parseInt(usuario?.id)) ||
                         (usuario?.rol === 'gerente' && parseInt(usuario?.departamento_id) === 2)
                     ) && (
@@ -802,7 +832,7 @@ const OrdenTrabajoList = () => {
                             }, 100);
                         }}>Imprimir</Button>
                     )}
-                    {(usuario?.rol === 'gerente' || (usuario?.rol === 'analista' && orden.usuario_creador_id === usuario.id)) && (orden.estado === "creada" ||
+                    {puedeEscribir && (usuario?.rol === 'gerente' || (usuario?.rol === 'analista' && orden.usuario_creador_id === usuario.id)) && (orden.estado === "creada" ||
                         (orden.estado === "aprobada" && usuario?.rol === "gerente")) &&
                         parseInt(usuario?.departamento_id) !== 2 && (
                             <Button className='ml-1' onClick={() => handleOpenModal(orden.id)}>
@@ -810,11 +840,7 @@ const OrdenTrabajoList = () => {
                             </Button>
                         )}
 
-
-
-
-
-                    {(usuario?.rol === 'gerente' || (usuario?.rol === 'analista' && orden.usuario_creador_id === usuario.id)) &&
+                    {puedeEscribir && (usuario?.rol === 'gerente' || (usuario?.rol === 'analista' && orden.usuario_creador_id === usuario.id)) &&
                         (orden.estado === "creada" ||
                             (orden.estado === "aprobada" && usuario?.rol === "gerente") ||
                             (orden.estado === "pendiente")) &&  // 🔹 Se agrega condición para estado "pendiente"
@@ -934,16 +960,28 @@ const OrdenTrabajoList = () => {
                     <div className="ot-page-heading">
                         <div>
                             <p className="ot-eyebrow">Sistema OT</p>
-                            <h1>Ordenes de Trabajo</h1>
+                            <h1>
+                                Ordenes de Trabajo
+                                {!puedeEscribir && (
+                                    <Tag color="blue" className="ot-readonly-tag">Solo lectura</Tag>
+                                )}
+                            </h1>
+                            {!puedeEscribir && (
+                                <p className="ot-readonly-hint">
+                                    Tu departamento puede consultar estas órdenes pero no modificarlas.
+                                </p>
+                            )}
                         </div>
-                        <button
-                            className="primary-action"
-                            onClick={() => setIsOpenCrearOrden(true)}
-                            type="button"
-                        >
-                            <PlusOutlined />
-                            Crear Orden
-                        </button>
+                        {puedeEscribir && (
+                            <button
+                                className="primary-action"
+                                onClick={() => setIsOpenCrearOrden(true)}
+                                type="button"
+                            >
+                                <PlusOutlined />
+                                Crear Orden
+                            </button>
+                        )}
                     </div>
 
                     <div className="ot-summary-grid">
@@ -1348,25 +1386,31 @@ const OrdenTrabajoList = () => {
 
                 </div>
 
-                <div className="message-composer">
-                    <Input.TextArea
-                        rows={4}
-                        value={mensajeCambio}
-                        onChange={(e) => setMensajeCambio(e.target.value)}
-                        placeholder="Escribe un mensaje"
-                    />
+                {puedeEscribir ? (
+                    <div className="message-composer">
+                        <Input.TextArea
+                            rows={4}
+                            value={mensajeCambio}
+                            onChange={(e) => setMensajeCambio(e.target.value)}
+                            placeholder="Escribe un mensaje"
+                        />
 
-                    <Button
-                        onClick={() => {
-                            grabarMensaje();
-                            setMensajeCambio('');  // Limpiar el campo después de enviar el mensaje
-                        }}
-                        type="primary"
-                        icon={<FaPaperPlane />}
-                    >
-                        Enviar
-                    </Button>
-                </div>
+                        <Button
+                            onClick={() => {
+                                grabarMensaje();
+                                setMensajeCambio('');  // Limpiar el campo después de enviar el mensaje
+                            }}
+                            type="primary"
+                            icon={<FaPaperPlane />}
+                        >
+                            Enviar
+                        </Button>
+                    </div>
+                ) : (
+                    <p className="ot-readonly-note">
+                        Solo lectura: tu departamento puede consultar esta conversación pero no escribir en ella.
+                    </p>
+                )}
             </Modal>
 
             <Modal

@@ -18,9 +18,9 @@ class MensajeController extends Controller
     public function index($id)
     {
         // Se busca la orden (con su creador) para poder aplicar el mismo alcance
-        // por departamento que usa OrdenTrabajoController::index(): sin esto,
-        // cualquier usuario autenticado podía leer el chat de cualquier OT solo
-        // pasando su id (secuencial), sin importar su departamento.
+        // que usa OrdenTrabajoController::index()/show() (App\Support\AlcanceOrdenes):
+        // sin esto, cualquier usuario autenticado podía leer el chat de cualquier
+        // OT solo pasando su id (secuencial), sin importar su departamento.
         $orden = OrdenTrabajo::with('creador')->find($id);
 
         if (!$orden) {
@@ -29,12 +29,8 @@ class MensajeController extends Controller
 
         $userLogueado = auth()->user();
 
-        if (!AlcanceOrdenes::veTodosLosDepartamentos($userLogueado)) {
-            $departamentoCreador = $orden->creador ? (int) $orden->creador->departamento_id : null;
-
-            if ($departamentoCreador !== (int) $userLogueado->departamento_id) {
-                return response()->json(['error' => 'No tiene permisos para ver los mensajes de esta orden'], 403);
-            }
+        if (!AlcanceOrdenes::puedeVer($userLogueado, $orden)) {
+            return response()->json(['error' => 'No tiene permisos para ver los mensajes de esta orden'], 403);
         }
 
         $mensajes = Mensaje::with('usuario')->where('orden_trabajo_id', $id)->orderBy('created_at')->get(); // Asegúrate de que tienes la relación definida en el modelo

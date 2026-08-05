@@ -128,6 +128,12 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
                 setUsuarioMantenimientoId('');
                 setCategoria(null);
                 setEsSeguridad(false);
+            } else if (response.status === 403) {
+                notification.error({
+                    message: 'Error',
+                    description: 'No tenés permisos para realizar esta acción.',
+                });
+                setArchivos([]);
             } else {
                 // Intentamos mostrar el mensaje real del backend (ej. validación 422 de archivos)
                 let description = 'Hubo un error al crear la orden. Inténtalo de nuevo.';

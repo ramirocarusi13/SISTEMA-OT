@@ -54,6 +54,12 @@ const ModalAgregarArchivos = ({ isOpen, setIsOpen, ordenId, onUploadSuccess }) =
                 setArchivos([]); // Limpiar los archivos seleccionados
                 onUploadSuccess(); // Actualizar la vista
                 setIsOpen(false); // Cerrar el modal
+            } else if (response.status === 403) {
+                notification.error({
+                    message: 'Error al Subir',
+                    description: 'No tenés permisos para realizar esta acción.',
+                });
+                setArchivos([]);
             } else {
                 let description = 'Hubo un error al subir los archivos.';
                 try {

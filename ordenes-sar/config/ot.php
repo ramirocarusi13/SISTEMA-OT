@@ -48,4 +48,26 @@ return [
     // prioridad => orden numérico canónico (1 = más urgente)
     'prioridad_orden' => PrioridadOT::PRIORIDAD_ORDEN,
 
+    /*
+    |--------------------------------------------------------------------------
+    | Departamentos especiales (Mantenimiento / Seguridad e Higiene)
+    |--------------------------------------------------------------------------
+    |
+    | NO hardcodear estos ids en controllers: usar App\Support\Departamentos.
+    | 'mantenimiento' mantiene el default histórico (id 2) para no romper nada
+    | de lo que ya funciona. 'seguridad' (SyH) no tiene id fijo: el departamento
+    | lo creó el usuario a mano en el SQL Server del servidor, así que por
+    | defecto queda sin configurar (null) y se resuelve por nombre contra la
+    | tabla `departamentos` (ver 'seguridad_nombre'). Si el departamento no
+    | existe (ej. base local de desarrollo), App\Support\Departamentos::
+    | seguridadId() devuelve null y todo el sistema se comporta igual que hoy.
+    |
+    */
+
+    'departamentos' => [
+        'mantenimiento' => env('OT_DEPTO_MANTENIMIENTO_ID', 2),
+        'seguridad' => env('OT_DEPTO_SEGURIDAD_ID'),
+        'seguridad_nombre' => env('OT_DEPTO_SEGURIDAD_NOMBRE', 'SyH'),
+    ],
+
 ];

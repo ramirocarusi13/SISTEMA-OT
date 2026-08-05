@@ -38,8 +38,13 @@ async function apiFetch(path, options = {}) {
     }
 
     if (!response.ok) {
-        const mensaje = data?.error || data?.message || (data?.errors ? Object.values(data.errors).flat().join(' ') : null)
-            || 'Ocurrió un error inesperado. Intentá nuevamente.';
+        // 403: el usuario está autenticado pero no tiene permiso para esta acción
+        // (ej. Seguridad e Higiene, solo lectura). Mensaje genérico y entendible
+        // en vez de propagar el texto crudo del backend.
+        const mensaje = response.status === 403
+            ? 'No tenés permisos para realizar esta acción.'
+            : data?.error || data?.message || (data?.errors ? Object.values(data.errors).flat().join(' ') : null)
+                || 'Ocurrió un error inesperado. Intentá nuevamente.';
         return { ok: false, status: response.status, data, error: mensaje };
     }
 

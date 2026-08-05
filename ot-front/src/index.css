@@ -751,6 +751,32 @@
     font-weight: 700;
   }
 
+  /* --- Seguridad e Higiene (SyH): modo solo lectura --- */
+  .ot-readonly-tag {
+    margin-left: 10px;
+    vertical-align: middle;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .ot-readonly-hint {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .ot-readonly-note {
+    margin: 14px 0 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #1e3a8a;
+    font-size: 12px;
+    font-weight: 650;
+  }
+
   /* --- Tablero de Reportes (dashboard de presentación, layout propio) --- */
   .dash-shell {
     min-height: 100vh;
@@ -993,6 +1019,13 @@
     color: var(--muted);
     font-style: italic;
     font-weight: 600;
+  }
+
+  /* OT sin ninguna conversación: el botón queda atenuado para que las filas
+     con mensajes (badge rojo o gris) resalten en el tablero. */
+  .dash-sin-mensajes {
+    display: inline-block;
+    opacity: 0.45;
   }
 
   .dash-drawer-note {
