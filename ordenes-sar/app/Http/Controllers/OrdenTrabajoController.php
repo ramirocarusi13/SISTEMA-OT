@@ -42,6 +42,10 @@ class OrdenTrabajoController extends Controller
         // Filtros nuevos de prioridad (§5 de OrdenTrabajoController::index en la spec)
         $filtroPrioridad = array_filter((array) $request->input('prioridad', []));
         $filtroCategoria = array_filter((array) $request->input('categoria', []));
+        // Filtro por estado (array, multi-select): evita que el front tenga que traer
+        // TODAS las OTs y filtrar en el cliente. Valores válidos: creada, aprobada,
+        // asignada, en_proceso, finalizada (mismos que la columna 'estado').
+        $filtroEstado = array_filter((array) $request->input('estado', []));
         $filtroSoloVencidas = $request->boolean('solo_vencidas');
 
         // Closure reutilizable para contar los mensajes no leídos por el usuario logueado en cada orden
@@ -98,6 +102,10 @@ class OrdenTrabajoController extends Controller
 
         if (!empty($filtroCategoria)) {
             $query->whereIn('categoria', $filtroCategoria);
+        }
+
+        if (!empty($filtroEstado)) {
+            $query->whereIn('estado', $filtroEstado);
         }
 
         if ($filtroSoloVencidas) {

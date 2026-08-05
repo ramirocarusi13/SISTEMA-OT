@@ -95,10 +95,22 @@ export function fetchReporteTendencia(params) {
     return apiFetch(`reportes/tendencia${qs ? `?${qs}` : ''}`);
 }
 
-// GET /api/ordenes-trabajo (con filtros opcionales: departamento_id, prioridad[], categoria[], solo_vencidas, etc.)
+// GET /api/ordenes-trabajo (con filtros opcionales: departamento_id, estado[], prioridad[], categoria[], usuario_mantenimiento_id, solo_vencidas, etc.)
 export function fetchOrdenesTrabajo(params) {
     const qs = buildQuery(params);
     return apiFetch(`ordenes-trabajo${qs ? `?${qs}` : ''}`);
+}
+
+// GET /api/usuarios-mantenimiento -> usuarios del departamento de mantenimiento (incluye group_leader y gerente)
+export function fetchUsuariosMantenimiento() {
+    return apiFetch('usuarios-mantenimiento');
+}
+
+// GET /api/ordenes-trabajo/{id}/mensajes -> hilo de mensajes de la OT (solo lectura).
+// Puede devolver 403 (OT de otro departamento) o 404 (no existe); no dispara el
+// endpoint de "visto" a propósito: este helper es para paneles de consulta.
+export function fetchMensajesOT(ordenId) {
+    return apiFetch(`ordenes-trabajo/${ordenId}/mensajes`);
 }
 
 // PUT /api/ordenes-trabajo/{id}/prioridad

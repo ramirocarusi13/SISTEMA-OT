@@ -4,18 +4,20 @@
 // y el donut se resuelven con divs/Tailwind y SVG inline, y las tablas/KPIs con
 // componentes de AntD.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, DatePicker, Empty, Select, Skeleton, Table, Tag, Tooltip } from 'antd';
-import { ReloadOutlined, BarChartOutlined } from '@ant-design/icons';
+import { Alert, Button, DatePicker, Drawer, Empty, Select, Skeleton, Table, Tag, Tooltip } from 'antd';
+import { ReloadOutlined, BarChartOutlined, MessageOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { FaArrowLeft } from 'react-icons/fa';
 import moment from 'moment';
 import {
     fetchDepartamentosApi,
+    fetchMensajesOT,
     fetchOrdenesTrabajo,
     fetchReporteDepartamentos,
     fetchReporteMantenimiento,
     fetchReporteResumen,
     fetchReporteTendencia,
+    fetchUsuariosMantenimiento,
 } from '../Utils/otApi';
 import { getPrioridadInfo, getSlaEstadoUi, ordenarPorPrioridad } from '../Utils/prioridad';
 
@@ -300,7 +302,27 @@ const Reportes = () => {
 
     useEffect(() => { cargarDeptoRows(); }, [cargarDeptoRows]);
 
-    // --- OTs activas ordenadas por prioridad -------------------------------
+    // --- OTs (listado filtrable por estado / técnico asignado) -------------
+    // Estado por defecto: replica la vista "activas" que tenía el dashboard antes
+    // (todo menos finalizada), pero ahora es un multi-select editable por el
+    // usuario y el filtrado lo hace el backend (query param estado[]) en vez de
+    // bajar TODAS las OTs y filtrar acá.
+    const ESTADOS_DEFAULT = useMemo(() => ESTADOS_ORDEN.filter((e) => e !== 'finalizada'), []);
+    const [filtroEstados, setFiltroEstados] = useState(ESTADOS_DEFAULT);
+    const [filtroTecnicoId, setFiltroTecnicoId] = useState(null);
+    const [tecnicosFiltro, setTecnicosFiltro] = useState([]);
+
+    // Lista de técnicos de mantenimiento para el selector de "Técnico asignado"
+    // (mismo endpoint y mismo filtro por rol que usa ModalCrearOrdenTrabajo/OrdenTrabajoList).
+    useEffect(() => {
+        (async () => {
+            const { ok, data } = await fetchUsuariosMantenimiento();
+            if (ok && Array.isArray(data)) {
+                setTecnicosFiltro(data.filter((u) => u.rol === 'group_leader'));
+            }
+        })();
+    }, []);
+
     const [otsActivas, setOtsActivas] = useState([]);
     const [otsLoading, setOtsLoading] = useState(false);
     const [otsError, setOtsError] = useState(null);
@@ -308,17 +330,66 @@ const Reportes = () => {
     const cargarOtsActivas = useCallback(async () => {
         setOtsLoading(true);
         setOtsError(null);
-        const { ok, data, error } = await fetchOrdenesTrabajo({ departamento_id: departamentoId || undefined });
+        const { ok, data, error } = await fetchOrdenesTrabajo({
+            departamento_id: departamentoId || undefined,
+            estado: filtroEstados,
+            usuario_mantenimiento_id: filtroTecnicoId || undefined,
+        });
         if (ok) {
-            const activas = Array.isArray(data) ? data.filter((o) => o.estado !== 'finalizada') : [];
-            setOtsActivas(ordenarPorPrioridad(activas));
+            setOtsActivas(ordenarPorPrioridad(Array.isArray(data) ? data : []));
         } else {
             setOtsError(error);
         }
         setOtsLoading(false);
-    }, [departamentoId]);
+    }, [departamentoId, filtroEstados, filtroTecnicoId]);
 
     useEffect(() => { cargarOtsActivas(); }, [cargarOtsActivas]);
+
+    const filtrosTablaSonDefault = filtroTecnicoId === null
+        && filtroEstados.length === ESTADOS_DEFAULT.length
+        && filtroEstados.every((e) => ESTADOS_DEFAULT.includes(e));
+
+    const restablecerFiltrosTabla = () => {
+        setFiltroEstados(ESTADOS_DEFAULT);
+        setFiltroTecnicoId(null);
+    };
+
+    // --- Drawer de mensajes de una OT (solo lectura, SPEC de este cambio) ---
+    // A propósito NO se llama a PUT .../mensajes/visto acá: el reporte es de
+    // consulta y no debe alterar el contador de "no leídos" del listado de OTs.
+    const [mensajesDrawerOpen, setMensajesDrawerOpen] = useState(false);
+    const [mensajesOrden, setMensajesOrden] = useState(null);
+    const [mensajes, setMensajes] = useState([]);
+    const [mensajesLoading, setMensajesLoading] = useState(false);
+    const [mensajesError, setMensajesError] = useState(null);
+
+    const cargarMensajesOrden = useCallback(async (ordenId) => {
+        setMensajesLoading(true);
+        setMensajesError(null);
+        const { ok, data, error } = await fetchMensajesOT(ordenId);
+        if (ok) {
+            setMensajes(Array.isArray(data) ? data : []);
+        } else {
+            // El backend puede responder 403 (OT de otro departamento) o 404 (no existe);
+            // el mensaje ya viene listo para mostrar (apiFetch lo extrae de data.error).
+            setMensajesError(error);
+        }
+        setMensajesLoading(false);
+    }, []);
+
+    const abrirMensajes = (orden) => {
+        setMensajesOrden(orden);
+        setMensajes([]);
+        setMensajesDrawerOpen(true);
+        cargarMensajesOrden(orden.id);
+    };
+
+    const cerrarMensajes = () => {
+        setMensajesDrawerOpen(false);
+        setMensajesOrden(null);
+        setMensajes([]);
+        setMensajesError(null);
+    };
 
     // --- Performance MTTO: técnicos + tendencia ----------------------------
     const [tecnicos, setTecnicos] = useState([]);
@@ -387,6 +458,12 @@ const Reportes = () => {
         { title: 'Título', dataIndex: 'titulo', key: 'titulo' },
         { title: 'Creador', dataIndex: 'usuario_creador', key: 'usuario_creador' },
         { title: 'Departamento', dataIndex: 'departamento_creador', key: 'departamento_creador' },
+        {
+            title: 'Asignada a',
+            dataIndex: 'usuario_mantenimiento',
+            key: 'usuario_mantenimiento',
+            render: (nombre) => (nombre ? nombre : <span className="dash-sin-asignar">Sin asignar</span>),
+        },
         { title: 'Estado', dataIndex: 'estado', key: 'estado', render: (estado) => ESTADOS_LABEL[estado] || estado },
         {
             title: 'Prioridad',
@@ -417,6 +494,16 @@ const Reportes = () => {
                     </Tooltip>
                 );
             },
+        },
+        {
+            title: 'Mensajes',
+            key: 'mensajes',
+            className: 'text-center',
+            render: (_, orden) => (
+                <Button size="small" icon={<MessageOutlined />} onClick={() => abrirMensajes(orden)}>
+                    Ver
+                </Button>
+            ),
         },
     ];
 
@@ -540,13 +627,45 @@ const Reportes = () => {
                         </DashPanel>
                     )}
 
-                    <DashPanel title="OTs activas por prioridad" className="dash-panel--table">
+                    <DashPanel title="Listado de OTs" className="dash-panel--table">
+                        <div className="dash-table-filters">
+                            <div className="dash-table-filters__controls">
+                                <Select
+                                    mode="multiple"
+                                    allowClear
+                                    placeholder="Todos los estados"
+                                    aria-label="Filtrar por estado"
+                                    style={{ minWidth: 240 }}
+                                    maxTagCount="responsive"
+                                    value={filtroEstados}
+                                    onChange={setFiltroEstados}
+                                    options={ESTADOS_ORDEN.map((estado) => ({ value: estado, label: ESTADOS_LABEL[estado] }))}
+                                />
+                                <Select
+                                    allowClear
+                                    showSearch
+                                    optionFilterProp="label"
+                                    placeholder="Todos los técnicos"
+                                    aria-label="Filtrar por técnico asignado"
+                                    style={{ minWidth: 220 }}
+                                    value={filtroTecnicoId}
+                                    onChange={(value) => setFiltroTecnicoId(value || null)}
+                                    options={tecnicosFiltro.map((tecnico) => ({ value: tecnico.id, label: tecnico.name }))}
+                                />
+                                {!filtrosTablaSonDefault && (
+                                    <Button type="link" onClick={restablecerFiltrosTabla}>Restablecer</Button>
+                                )}
+                            </div>
+                            <p className="dash-table-filters__note">
+                                Estos filtros de estado y técnico aplican solo a este listado. Los indicadores y gráficos de arriba muestran el total del período, sin este filtro.
+                            </p>
+                        </div>
                         <EstadoAsync
                             loading={otsLoading}
                             error={otsError}
                             isEmpty={otsActivas.length === 0}
                             onRetry={cargarOtsActivas}
-                            emptyDescription="No hay órdenes activas."
+                            emptyDescription="No hay órdenes que coincidan con los filtros seleccionados."
                         >
                             <Table
                                 dataSource={otsActivas}
@@ -609,6 +728,43 @@ const Reportes = () => {
                     )}
                 </main>
             </div>
+
+            <Drawer
+                title={mensajesOrden ? `Mensajes — OT N° ${mensajesOrden.id}: ${mensajesOrden.titulo}` : 'Mensajes de la OT'}
+                placement="right"
+                width={420}
+                open={mensajesDrawerOpen}
+                onClose={cerrarMensajes}
+                destroyOnClose
+            >
+                <p className="dash-drawer-note">
+                    Vista de solo lectura: acá no se puede escribir ni se marcan los mensajes como leídos.
+                </p>
+                <EstadoAsync
+                    loading={mensajesLoading}
+                    error={mensajesError}
+                    isEmpty={mensajes.length === 0}
+                    onRetry={() => mensajesOrden && cargarMensajesOrden(mensajesOrden.id)}
+                    emptyDescription="Todavía no hay mensajes en esta orden."
+                    skeletonRows={4}
+                >
+                    <div className="message-list">
+                        {mensajes.map((mensaje) => (
+                            <div
+                                className={`message-row ${mensaje.usuario?.id === usuario?.id ? 'is-own' : 'is-other'}`}
+                                key={mensaje.id}
+                            >
+                                <div className={`message-bubble break-words ${mensaje.usuario?.id === usuario?.id ? 'is-own' : 'is-other'}`}>
+                                    <p className="message-author">
+                                        {mensaje.usuario?.name || 'Usuario'}: <span className="font-normal">{mensaje.mensaje}</span>
+                                    </p>
+                                    <p className="message-time">{moment(mensaje.created_at).format('DD/MM/YYYY HH:mm')}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </EstadoAsync>
+            </Drawer>
         </div>
     );
 };

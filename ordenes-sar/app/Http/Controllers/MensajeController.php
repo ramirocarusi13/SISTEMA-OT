@@ -6,7 +6,9 @@ use App\Jobs\SendMensajeNotificacionJob;
 use App\Mail\MensajeNotificacion;
 use App\Models\Mensaje;
 use App\Models\MensajeLectura;
+use App\Models\OrdenTrabajo;
 use App\Models\User;
+use App\Support\AlcanceOrdenes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -15,6 +17,26 @@ class MensajeController extends Controller
 {
     public function index($id)
     {
+        // Se busca la orden (con su creador) para poder aplicar el mismo alcance
+        // por departamento que usa OrdenTrabajoController::index(): sin esto,
+        // cualquier usuario autenticado podía leer el chat de cualquier OT solo
+        // pasando su id (secuencial), sin importar su departamento.
+        $orden = OrdenTrabajo::with('creador')->find($id);
+
+        if (!$orden) {
+            return response()->json(['error' => 'Orden de trabajo no encontrada'], 404);
+        }
+
+        $userLogueado = auth()->user();
+
+        if (!AlcanceOrdenes::veTodosLosDepartamentos($userLogueado)) {
+            $departamentoCreador = $orden->creador ? (int) $orden->creador->departamento_id : null;
+
+            if ($departamentoCreador !== (int) $userLogueado->departamento_id) {
+                return response()->json(['error' => 'No tiene permisos para ver los mensajes de esta orden'], 403);
+            }
+        }
+
         $mensajes = Mensaje::with('usuario')->where('orden_trabajo_id', $id)->orderBy('created_at')->get(); // Asegúrate de que tienes la relación definida en el modelo
 
         return response()->json($mensajes);
