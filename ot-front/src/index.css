@@ -760,11 +760,11 @@
     text-transform: uppercase;
   }
 
-  .ot-readonly-hint {
-    margin: 4px 0 0;
-    color: var(--muted);
-    font-size: 13px;
-    font-weight: 600;
+  /* Indicador por fila (dentro de .action-row, que ya maneja el espaciado con gap) */
+  .ot-readonly-row-tag {
+    margin-left: 0;
+    align-self: center;
+    cursor: help;
   }
 
   .ot-readonly-note {

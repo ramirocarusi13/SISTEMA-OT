@@ -123,7 +123,7 @@ class OrdenTrabajoController extends Controller
             ->get();
 
         // Formatear la respuesta
-        $ordenesFormatted = $ordenesTrabajo->map(function ($orden) {
+        $ordenesFormatted = $ordenesTrabajo->map(function ($orden) use ($userLogueado) {
             return [
                 'id' => $orden->id,
                 'titulo' => $orden->titulo,
@@ -156,6 +156,11 @@ class OrdenTrabajoController extends Controller
                 'sla_vence_at' => $orden->sla_vence_at,
                 'cumplio_sla' => $orden->cumplio_sla,
                 'fecha_asignacion' => $orden->fecha_asignacion,
+                // Alcance de ESCRITURA por OT (App\Support\AlcanceOrdenes::puedeEditar):
+                // hoy solo da true para Seguridad e Higiene mirando una OT ajena que ve
+                // por estar marcada de seguridad. Para todo el resto siempre es false.
+                // 'creador' ya viene eager-loaded en $query, no dispara query por fila.
+                'solo_lectura' => !AlcanceOrdenes::puedeEditar($userLogueado, $orden),
             ];
         });
 
@@ -220,10 +225,12 @@ class OrdenTrabajoController extends Controller
             $orden = OrdenTrabajo::with(['creador', 'usuarioMantenimiento', 'descripciones', 'finalizadoPor'])
                 ->findOrFail($id); // Lanza una excepción si no se encuentra la orden
 
+            $userLogueado = auth()->user();
+
             // Antes acá no se validaba alcance: cualquier usuario autenticado
             // podía leer cualquier OT por id (secuencial), sin importar su
             // departamento. Se aplica el mismo criterio que index()/mensajes.
-            if (!AlcanceOrdenes::puedeVer(auth()->user(), $orden)) {
+            if (!AlcanceOrdenes::puedeVer($userLogueado, $orden)) {
                 return response()->json(['error' => 'No tiene permisos para ver esta orden'], 403);
             }
 
@@ -242,6 +249,12 @@ class OrdenTrabajoController extends Controller
                 'created_at' => $orden->created_at,
                 'updated_at' => $orden->updated_at,
             ];
+
+            // Alcance de ESCRITURA por OT (mismo campo que index(), ver
+            // App\Support\AlcanceOrdenes::puedeEditar). Se agrega como atributo
+            // dinámico sobre el modelo porque este endpoint devuelve $orden (no
+            // $ordenFormatted) en la respuesta.
+            $orden->solo_lectura = !AlcanceOrdenes::puedeEditar($userLogueado, $orden);
 
             return response()->json($orden);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {

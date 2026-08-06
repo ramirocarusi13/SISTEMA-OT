@@ -241,7 +241,7 @@ const ModalCrearOrdenTrabajo = ({ isOpen, setIsOpen, onCreateSuccess }) => {
                                     checked={esSeguridad}
                                     onChange={(e) => setEsSeguridad(e.target.checked)}
                                 >
-                                    Involucra seguridad (persona o instalación en riesgo)
+                                    ¿Implica riesgo de seguridad? (persona o instalación en riesgo)
                                 </Checkbox>
                             </div>
 

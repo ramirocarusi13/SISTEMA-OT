@@ -81,8 +81,10 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'json.response' => \App\Http\Middleware\ForceJsonResponse::class,
         'cors' => \App\Http\Middleware\Cors::class,
-        // Bloquea escritura para el departamento Seguridad e Higiene (SyH), que
-        // tiene acceso de solo lectura. Ver App\Http\Middleware\BloquearEscrituraSeguridad.
-        'bloquear.escritura.seguridad' => \App\Http\Middleware\BloquearEscrituraSeguridad::class,
+        // Bloquea la escritura sobre una OT ajena (hoy: Seguridad e Higiene
+        // mirando una OT de otro departamento que ve solo por estar marcada
+        // de seguridad). El chequeo es POR ORDEN, no por usuario. Ver
+        // App\Http\Middleware\BloquearEscrituraOrdenAjena.
+        'bloquear.escritura.orden.ajena' => \App\Http\Middleware\BloquearEscrituraOrdenAjena::class,
     ];
 }

@@ -41,30 +41,11 @@ const Login = () => {
 
             localStorage.setItem('token', data.access_token);
 
-            // El login no trae los flags de permisos (es_seguridad_higiene/puede_escribir),
-            // solo GET /api/user los resuelve. Se pide una vez acá y se guardan mezclados
-            // en el mismo objeto 'user' de siempre, para que el resto de la app (que ya
-            // lee localStorage.getItem('user')) los tenga disponibles sin cambiar nada más.
-            // Si esta llamada falla, se guarda el usuario del login tal cual: sin los
-            // flags, 'puede_escribir' se trata como true en toda la UI (comportamiento actual).
-            let usuarioCompleto = data.user;
-            try {
-                const userResponse = await fetch(`${APIURI}user`, {
-                    headers: {
-                        Authorization: `Bearer ${data.access_token}`,
-                        Accept: 'application/json',
-                    },
-                });
-
-                if (userResponse.ok) {
-                    const userData = await userResponse.json();
-                    usuarioCompleto = { ...data.user, ...userData };
-                }
-            } catch (permError) {
-                // Sin conexión momentánea: se sigue con el usuario del login, sin flags.
-            }
-
-            localStorage.setItem('user', JSON.stringify(usuarioCompleto));
+            // El permiso de escritura ahora es por OT (campo 'solo_lectura' en cada orden,
+            // resuelto por GET /api/ordenes-trabajo), no un flag global de usuario. Ya no
+            // hace falta pedir GET /api/user acá: no aporta nada que el front use hoy, así
+            // que se evita un request y un punto de falla extra en el login.
+            localStorage.setItem('user', JSON.stringify(data.user));
 
             setTimeout(() => {
                 navigate('/home');

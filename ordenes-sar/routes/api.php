@@ -50,24 +50,27 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
 
     Route::get('/ordenes-trabajo/{id}/mensajes', [MensajeController::class, 'index']);
 
+    // Crear una OT nueva está permitido para cualquier usuario/departamento
+    // (incluido SyH): no hay una OT objetivo que pueda ser "ajena" todavía,
+    // así que queda fuera del grupo de abajo (que necesita una OT existente
+    // para evaluar el alcance).
+    Route::post('/ordenes-trabajo', [OrdenTrabajoController::class, 'store']);
+
     // -------------------------------------------------------------------
-    // Rutas de ESCRITURA sobre OTs/mensajes/descripciones: el departamento
-    // Seguridad e Higiene (SyH) tiene acceso de solo lectura, así que todas
-    // quedan detrás de 'bloquear.escritura.seguridad' (ver
-    // App\Http\Middleware\BloquearEscrituraSeguridad). Cualquier endpoint de
-    // escritura nuevo debe agregarse ACÁ para quedar cubierto por defecto.
+    // Rutas de ESCRITURA sobre una OT existente (o sus mensajes/descripciones):
+    // quedan detrás de 'bloquear.escritura.orden.ajena' (ver
+    // App\Http\Middleware\BloquearEscrituraOrdenAjena), que resuelve la OT
+    // objetivo de la request y bloquea solo si el usuario no puede escribir
+    // en ESA orden puntual (hoy: Seguridad e Higiene sobre una OT ajena que
+    // ve por estar marcada de seguridad). Para el resto de los usuarios no
+    // cambia nada. Cualquier endpoint de escritura nuevo sobre una OT debe
+    // agregarse ACÁ para quedar cubierto por defecto.
     // -------------------------------------------------------------------
-    Route::middleware(['bloquear.escritura.seguridad'])->group(function () {
+    Route::middleware(['bloquear.escritura.orden.ajena'])->group(function () {
         Route::delete('/ordenes-trabajo/{id}', [OrdenTrabajoController::class, 'destroy']);
         Route::post('/ordenes-trabajo/{ordenId}/agregar-archivos', [OrdenTrabajoController::class, 'agregarArchivos']);
         Route::put('/ordenes-trabajo/{id}/finalizar', [OrdenTrabajoController::class, 'finalizarOrdenTrabajo']);
         Route::put('/ordenes-trabajo/{id}/finalizar2', [OrdenTrabajoController::class, 'finalizarOrdenTrabajo2']);
-
-        // NOTA: store() queda bloqueado para SyH bajo el supuesto acordado de
-        // que, por ahora, SyH no crea OTs propias (solo consulta las que le
-        // competen). Si eso cambia, sacar esta ruta de este grupo (o sumar
-        // una excepción puntual) para volver a permitir la creación.
-        Route::post('/ordenes-trabajo', [OrdenTrabajoController::class, 'store']);
 
         Route::put('/ordenes-trabajo/{id}/estado', [OrdenTrabajoController::class, 'updateEstado']);
         Route::post('/ordenes-trabajo/{id}/descripciones', [DescripcionController::class, 'store']);
@@ -78,8 +81,8 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
         // Override manual de prioridad (§1/§6 de SPEC-prioridad-reportes.md)
         Route::put('/ordenes-trabajo/{id}/prioridad', [OrdenTrabajoController::class, 'updatePrioridad']);
 
-        // Crea una notificación dirigida a OTRO usuario sobre una OT: es escritura
-        // hacia afuera, no bandeja propia, así que también queda bloqueada.
+        // Crea una notificación dirigida a OTRO usuario sobre una OT puntual
+        // (orden_trabajo_id en el body): queda sujeta al mismo chequeo por-OT.
         Route::post('/notificaciones', [NotificacionesController::class, 'enviarNotificacion']);
     });
 

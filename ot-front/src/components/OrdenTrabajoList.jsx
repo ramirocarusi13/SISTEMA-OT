@@ -52,6 +52,9 @@ const OrdenTrabajoList = () => {
     const [mensajes, setMensajes] = useState([]);
     const [visibleTable, setVisibleTable] = useState(null);
     const [ordenIdMensajes, setOrdenIdMensajes] = useState(null);
+    // solo_lectura de la OT cuyo hilo de mensajes está abierto (Seguridad e Higiene
+    // mirando una OT ajena marcada de seguridad): oculta el composer sin afectar al resto.
+    const [ordenMensajesSoloLectura, setOrdenMensajesSoloLectura] = useState(false);
     const [user, setUser] = useState(null);
     const [isOpenAsignarModal, setIsOpenAsignarModal] = useState(false);
     const [ordenIdAsignar, setOrdenIdAsignar] = useState(null);
@@ -556,7 +559,8 @@ const OrdenTrabajoList = () => {
     };
 
 
-    const cargarMensajes = async (ordenId) => {
+    const cargarMensajes = async (orden) => {
+        const ordenId = orden.id;
         const token = await getItem();
         const response = await fetch(`${APIURI}ordenes-trabajo/${ordenId}/mensajes`, {
             headers: {
@@ -569,11 +573,13 @@ const OrdenTrabajoList = () => {
         setMensajes(mensajesData);
         setIsOpenMensajesModal(true);
         setOrdenIdMensajes(ordenId)
+        setOrdenMensajesSoloLectura(!!orden.solo_lectura);
 
         // Marca el chat como visto y resetea el contador de no leídos, sin bloquear la apertura del modal.
-        // Seguridad e Higiene no puede escribir (este endpoint también está bloqueado por el
-        // backend): se evita el llamado de entrada en vez de dejar que vuelva un 403 de más.
-        if (puedeEscribir) {
+        // Si la OT es de solo lectura para este usuario (Seguridad e Higiene mirando una OT
+        // ajena), este endpoint también está bloqueado por el backend: se evita el llamado de
+        // entrada en vez de dejar que vuelva un 403 de más.
+        if (!orden.solo_lectura) {
             fetch(`${APIURI}ordenes-trabajo/${ordenId}/mensajes/visto`, {
                 method: 'PUT',
                 headers: {
@@ -592,7 +598,7 @@ const OrdenTrabajoList = () => {
         }
     };
     const grabarMensaje = async () => {
-        if (!puedeEscribir) {
+        if (ordenMensajesSoloLectura) {
             return;
         }
 
@@ -664,17 +670,12 @@ const OrdenTrabajoList = () => {
 
 
 
-    // Seguridad e Higiene (SyH) tiene acceso de solo lectura: ve las OTs de seguridad
-    // de cualquier departamento más las suyas, pero no puede actuar sobre ninguna. El
-    // flag ya viene resuelto por el backend (GET /api/user); si no vino (usuario
-    // cacheado de un login anterior a este cambio) se trata como true, que es el
-    // comportamiento de siempre para todos los demás roles.
-    const puedeEscribir = usuario?.puede_escribir !== false;
-
     // Solo admin, gerente o cualquier usuario de MTTO (departamento_id = 2) puede overridear
     // la prioridad calculada automáticamente (§1 de la spec, validado también en el backend).
-    const puedeCambiarPrioridad = puedeEscribir &&
-        (usuario?.rol === 'admin' || usuario?.rol === 'gerente' || parseInt(usuario?.departamento_id) === 2);
+    // Se combina con `!orden.solo_lectura` en cada fila (ver columna "Acción"): Seguridad e
+    // Higiene puede tener este rol y aun así estar mirando una OT ajena de solo lectura.
+    const puedeCambiarPrioridadRol =
+        usuario?.rol === 'admin' || usuario?.rol === 'gerente' || parseInt(usuario?.departamento_id) === 2;
 
     const abrirModalPrioridad = (orden) => {
         setOrdenPrioridad(orden);
@@ -777,9 +778,21 @@ const OrdenTrabajoList = () => {
         {
             title: 'Acción',
             key: 'accion',
-            render: (text, orden) => (
+            render: (text, orden) => {
+                // OT ajena que Seguridad e Higiene ve por la marca de seguridad: puede
+                // consultarla pero el backend rechaza (403) cualquier escritura sobre ella.
+                // Para el resto de las filas (todos los usuarios actuales) esto es siempre
+                // false y la UI queda idéntica a como estaba antes de este permiso.
+                const puedeEscribirOrden = !orden.solo_lectura;
+
+                return (
                 <div className="action-row">
-                    {puedeEscribir && orden.estado === 'creada' && usuario?.rol === 'gerente' && (
+                    {orden.solo_lectura && (
+                        <Tooltip title="OT de otro departamento: podés consultarla pero no modificarla.">
+                            <Tag color="blue" className="ot-readonly-tag ot-readonly-row-tag">Solo lectura</Tag>
+                        </Tooltip>
+                    )}
+                    {puedeEscribirOrden && orden.estado === 'creada' && usuario?.rol === 'gerente' && (
                         <Button
                             type="primary"
                             onClick={() => aprobarOrden(orden.id)}
@@ -787,12 +800,12 @@ const OrdenTrabajoList = () => {
                             Aprobar
                         </Button>
                     )}
-                    {puedeEscribir && orden.estado === 'aprobada' && parseInt(usuario?.departamento_id) === 2 && usuario?.rol !== 'group_leader' && (
+                    {puedeEscribirOrden && orden.estado === 'aprobada' && parseInt(usuario?.departamento_id) === 2 && usuario?.rol !== 'group_leader' && (
                         <Button type="primary" onClick={() => abrirModalAsignar(orden.id)}>
                             Asignar
                         </Button>
                     )}
-                    {puedeEscribir && orden.estado === 'asignada' && (
+                    {puedeEscribirOrden && orden.estado === 'asignada' && (
                         (usuario?.rol === 'group_leader' && parseInt(orden.usuario_mantenimiento_id) === parseInt(usuario?.id)) ||
                         (usuario?.rol === 'gerente' && parseInt(usuario?.departamento_id) === 2)
                     ) && (
@@ -805,14 +818,14 @@ const OrdenTrabajoList = () => {
                     )}
                     <Button className=' ml-1' onClick={() => cargarDescripcion(orden.id)}>Descripción</Button>
 
-                    {puedeCambiarPrioridad && (
+                    {puedeCambiarPrioridadRol && puedeEscribirOrden && (
                         <Button className='ml-1' onClick={() => abrirModalPrioridad(orden)}>
                             Cambiar prioridad
                         </Button>
                     )}
 
                     <Badge count={orden.mensajes_no_leidos} size="small" overflowCount={99} className='ml-1'>
-                        <Button onClick={() => cargarMensajes(orden.id)}>Mensajes</Button>
+                        <Button onClick={() => cargarMensajes(orden)}>Mensajes</Button>
                     </Badge>
 
                     {/* Ejemplo de orden */}
@@ -832,7 +845,7 @@ const OrdenTrabajoList = () => {
                             }, 100);
                         }}>Imprimir</Button>
                     )}
-                    {puedeEscribir && (usuario?.rol === 'gerente' || (usuario?.rol === 'analista' && orden.usuario_creador_id === usuario.id)) && (orden.estado === "creada" ||
+                    {puedeEscribirOrden && (usuario?.rol === 'gerente' || (usuario?.rol === 'analista' && orden.usuario_creador_id === usuario.id)) && (orden.estado === "creada" ||
                         (orden.estado === "aprobada" && usuario?.rol === "gerente")) &&
                         parseInt(usuario?.departamento_id) !== 2 && (
                             <Button className='ml-1' onClick={() => handleOpenModal(orden.id)}>
@@ -840,7 +853,7 @@ const OrdenTrabajoList = () => {
                             </Button>
                         )}
 
-                    {puedeEscribir && (usuario?.rol === 'gerente' || (usuario?.rol === 'analista' && orden.usuario_creador_id === usuario.id)) &&
+                    {puedeEscribirOrden && (usuario?.rol === 'gerente' || (usuario?.rol === 'analista' && orden.usuario_creador_id === usuario.id)) &&
                         (orden.estado === "creada" ||
                             (orden.estado === "aprobada" && usuario?.rol === "gerente") ||
                             (orden.estado === "pendiente")) &&  // 🔹 Se agrega condición para estado "pendiente"
@@ -863,7 +876,8 @@ const OrdenTrabajoList = () => {
                     }
 
                 </div>
-            ),
+                );
+            },
         },
     ];
 
@@ -960,28 +974,16 @@ const OrdenTrabajoList = () => {
                     <div className="ot-page-heading">
                         <div>
                             <p className="ot-eyebrow">Sistema OT</p>
-                            <h1>
-                                Ordenes de Trabajo
-                                {!puedeEscribir && (
-                                    <Tag color="blue" className="ot-readonly-tag">Solo lectura</Tag>
-                                )}
-                            </h1>
-                            {!puedeEscribir && (
-                                <p className="ot-readonly-hint">
-                                    Tu departamento puede consultar estas órdenes pero no modificarlas.
-                                </p>
-                            )}
+                            <h1>Ordenes de Trabajo</h1>
                         </div>
-                        {puedeEscribir && (
-                            <button
-                                className="primary-action"
-                                onClick={() => setIsOpenCrearOrden(true)}
-                                type="button"
-                            >
-                                <PlusOutlined />
-                                Crear Orden
-                            </button>
-                        )}
+                        <button
+                            className="primary-action"
+                            onClick={() => setIsOpenCrearOrden(true)}
+                            type="button"
+                        >
+                            <PlusOutlined />
+                            Crear Orden
+                        </button>
                     </div>
 
                     <div className="ot-summary-grid">
@@ -1386,7 +1388,7 @@ const OrdenTrabajoList = () => {
 
                 </div>
 
-                {puedeEscribir ? (
+                {!ordenMensajesSoloLectura ? (
                     <div className="message-composer">
                         <Input.TextArea
                             rows={4}

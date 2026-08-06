@@ -37,13 +37,15 @@ class UserController extends Controller
             return response()->json(['message' => 'Usuario no autenticado'], 401);
         }
 
-        // Flags de permisos resueltos en el backend, para que el front no tenga que
-        // re-derivar la regla (ni hardcodear nombres/ids de departamento en JS).
-        // El backend igual bloquea la escritura por middleware: esto es solo para
-        // que la UI no ofrezca acciones que van a terminar en 403.
+        // Flag de contexto resuelto en el backend, para que el front no tenga que
+        // hardcodear nombres/ids de departamento en JS. El permiso de escritura ya
+        // NO es un interruptor global (antes 'puede_escribir'): ahora viaja por OT
+        // en el campo 'solo_lectura' de cada orden (ver OrdenTrabajoController::index/show
+        // y App\Support\AlcanceOrdenes::puedeEditar), porque un usuario de SyH puede
+        // escribir en las OTs de su propio departamento y solo es de lectura en las
+        // ajenas que ve por estar marcadas de seguridad.
         $payload = $user->toArray();
         $payload['es_seguridad_higiene'] = Departamentos::esSeguridad($user);
-        $payload['puede_escribir'] = !$payload['es_seguridad_higiene'];
 
         return response()->json($payload);
     }

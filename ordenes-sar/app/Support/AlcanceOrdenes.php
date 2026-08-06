@@ -17,9 +17,12 @@ use Illuminate\Database\Eloquent\Builder;
  * - Seguridad e Higiene / SyH (App\Support\Departamentos::esSeguridad) -> ve
  *   las OTs marcadas como de seguridad (es_seguridad = 1 o categoria =
  *   'seguridad') de CUALQUIER departamento, más las OTs propias (cuyo
- *   creador pertenece a SyH). No tiene alcance total: es un rol de solo
- *   lectura acotado a lo que le compete. Si el departamento SyH no existe en
- *   esta base (Departamentos::seguridadId() === null) esta rama nunca aplica.
+ *   creador pertenece a SyH). El alcance de LECTURA es amplio, pero el de
+ *   ESCRITURA (puedeEditar()) es más acotado: solo puede escribir en las OTs
+ *   de su propio departamento; las que ve por estar marcadas de seguridad
+ *   pero fueron creadas por otro departamento son de solo lectura. Si el
+ *   departamento SyH no existe en esta base (Departamentos::seguridadId() ===
+ *   null) esta rama nunca aplica.
  * - Cualquier otro usuario (gerente, group_leader, analista, team_member)
  *   -> solo ve las OTs cuyo creador pertenece a su propio departamento.
  */
@@ -102,5 +105,50 @@ class AlcanceOrdenes
         }
 
         return false;
+    }
+
+    /**
+     * True si el usuario puede EDITAR (crear descripciones, comentar, cambiar
+     * estado, etc.) esta OT puntual. A diferencia de puedeVer(), que decide si
+     * la OT entra en su alcance de lectura, esto decide si además puede
+     * escribir sobre ella. La regla es POR ORDEN, no por usuario:
+     * - Si ni siquiera puede verla -> false.
+     * - Mantenimiento/admin (veTodosLosDepartamentos) -> true, como siempre.
+     * - Seguridad e Higiene (SyH): si la OT es de su propio departamento
+     *   (creador de SyH) tiene los mismos permisos que cualquier otro
+     *   departamento (true); si la ve solo porque está marcada como de
+     *   seguridad pero la creó OTRO departamento, es de solo lectura (false).
+     * - Cualquier otro usuario/departamento -> true (la autorización fina por
+     *   rol la siguen resolviendo los controllers como hoy; esto es solo la
+     *   capa de alcance).
+     *
+     * Si $orden es null (p. ej. al crear una OT nueva, que todavía no existe)
+     * siempre da true: crear una OT está permitido para cualquiera que llegue
+     * hasta el controller (la validación de datos la hace el Form Request).
+     *
+     * Requiere que $orden tenga cargada la relación 'creador' (mismo
+     * requisito que puedeVer()).
+     */
+    public static function puedeEditar(User $user, ?OrdenTrabajo $orden): bool
+    {
+        if (!$orden) {
+            return true;
+        }
+
+        if (!self::puedeVer($user, $orden)) {
+            return false;
+        }
+
+        if (self::veTodosLosDepartamentos($user)) {
+            return true;
+        }
+
+        if (self::esSeguridad($user)) {
+            $departamentoCreador = $orden->creador ? (int) $orden->creador->departamento_id : null;
+
+            return $departamentoCreador !== null && $departamentoCreador === (int) $user->departamento_id;
+        }
+
+        return true;
     }
 }
