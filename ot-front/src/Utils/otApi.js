@@ -38,9 +38,22 @@ async function apiFetch(path, options = {}) {
     }
 
     if (!response.ok) {
+        // 401: el token venció o dejó de ser válido. La barrera de RutaProtegida
+        // solo mira que EXISTA un token, así que este es el punto donde se detecta
+        // una sesión muerta: se limpia y se manda al login, para no dejar la
+        // pantalla a medio cargar sin explicación.
+        if (response.status === 401) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            if (window.location.pathname !== '/login') {
+                window.location.replace('/login');
+            }
+            return { ok: false, status: 401, data, error: 'Tu sesión expiró. Volvé a iniciar sesión.' };
+        }
+
         // 403: el usuario está autenticado pero no tiene permiso para esta acción
-        // (ej. Seguridad e Higiene, solo lectura). Mensaje genérico y entendible
-        // en vez de propagar el texto crudo del backend.
+        // (ej. una OT de otro departamento en modo consulta). Mensaje genérico y
+        // entendible en vez de propagar el texto crudo del backend.
         const mensaje = response.status === 403
             ? 'No tenés permisos para realizar esta acción.'
             : data?.error || data?.message || (data?.errors ? Object.values(data.errors).flat().join(' ') : null)
