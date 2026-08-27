@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getItem } from '../storage/UserAsyncStorage';
 import { FaBell } from 'react-icons/fa';
 import { Modal } from 'antd';
@@ -9,6 +10,7 @@ export default function Notificacion() {
     const [notificaciones, setNotificaciones] = useState([]);
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
+    const navigate = useNavigate();
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -63,6 +65,16 @@ export default function Notificacion() {
         setIsModalVisible(false);
     };
 
+    // Las notificaciones de OT ('tipo' ausente o 'ot') no navegan a ningún
+    // lado (comportamiento histórico, sin cambios). Las de HHEE llevan al
+    // detalle de la solicitud correspondiente.
+    const handleClickNotificacion = (notificacion) => {
+        if (notificacion.tipo === 'hhee' && notificacion.solicitud_hhee_id) {
+            setIsModalVisible(false);
+            navigate(`/horas-extras?solicitud=${notificacion.solicitud_hhee_id}`);
+        }
+    };
+
     return (
         <div>
             <button className="notification-button" onClick={handleBellClick} type="button" aria-label="Notificaciones">
@@ -87,7 +99,10 @@ export default function Notificacion() {
                         notificaciones.map((notificacion) => (
                             <div
                                 key={notificacion.id}
-                                className={`notification-item ${notificacion.leido ? 'is-read' : ''}`}
+                                className={`notification-item ${notificacion.leido ? 'is-read' : ''} ${notificacion.tipo === 'hhee' ? 'is-clickable' : ''}`}
+                                onClick={() => handleClickNotificacion(notificacion)}
+                                role={notificacion.tipo === 'hhee' ? 'button' : undefined}
+                                tabIndex={notificacion.tipo === 'hhee' ? 0 : undefined}
                             >
                                 <p>{notificacion.detalle}</p>
                                 <small>{new Date(notificacion.created_at).toLocaleString()}</small>

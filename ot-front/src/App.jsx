@@ -5,6 +5,7 @@ import { ConfigProvider } from 'antd';
 import Home from './pages/Home';   // Cambia la ruta según tu estructura
 import Login from './pages/LoginPage'; // Cambia la ruta según tu estructura
 import Reportes from './pages/Reportes';
+import HorasExtras from './pages/HorasExtras';
 import RutaProtegida from './components/RutaProtegida';
 import './index.css'; // Asegúrate de que este archivo contenga las directivas de Tailwind
 
@@ -79,6 +80,14 @@ const App = () => {
             element={(
               <RutaProtegida>
                 <Reportes />
+              </RutaProtegida>
+            )}
+          />
+          <Route
+            path="/horas-extras"
+            element={(
+              <RutaProtegida>
+                <HorasExtras />
               </RutaProtegida>
             )}
           />

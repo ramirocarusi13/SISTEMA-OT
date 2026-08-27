@@ -19,13 +19,22 @@ class Notificacion extends Model
         'estado_nuevo',
         'mensaje',
         'leido',
+        // Discriminador 'ot'|'hhee' + FK opcional a hhee_solicitudes (ver
+        // migración 2026_08_25_000006_add_hhee_to_notificaciones_table).
+        'tipo',
+        'solicitud_hhee_id',
     ];
-    
 
     // Relación con la orden de trabajo
     public function ordenTrabajo()
     {
         return $this->belongsTo(OrdenTrabajo::class);
+    }
+
+    // Relación con la solicitud de HHEE (tipo='hhee')
+    public function solicitudHhee()
+    {
+        return $this->belongsTo(SolicitudHhee::class, 'solicitud_hhee_id');
     }
 
     // Relación con el usuario creador de la orden

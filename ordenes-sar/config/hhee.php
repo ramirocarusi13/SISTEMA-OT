@@ -1,0 +1,90 @@
+<?php
+
+use App\Support\HheeEstados;
+
+return [
+
+    /*
+    |--------------------------------------------------------------------------
+    | Roles de aprobación por nivel
+    |--------------------------------------------------------------------------
+    |
+    | Matriz nivel -> roles que pueden firmar ese nivel (hhee_roles_aprobacion.rol).
+    | Nivel 1 (jefe/gerente_area) respeta departamento_id de la solicitud (o fila
+    | global con departamento_id NULL en hhee_roles_aprobacion); nivel 2 es
+    | siempre de alcance global (ignora departamento_id de la fila).
+    |
+    | El módulo asume EXACTAMENTE 2 niveles de aprobación (ver
+    | hhee_aprobaciones.nivel, tinyint 1|2, y hhee_solicitudes.estado:
+    | pendiente_nivel1 / pendiente_final): agregar un tercer nivel acá NO
+    | alcanza, hay que revisar también App\Support\HheeFlujo::nivelPendiente()
+    | y la migración de hhee_aprobaciones (UNIQUE por solicitud_id+nivel).
+    |
+    | NO hardcodear estos roles en controllers: usar App\Support\HheeAprobadores
+    | (única fuente de verdad de autorización de firmas).
+    |
+    */
+
+    'niveles' => [
+        1 => ['jefe', 'gerente_area'],
+        2 => ['gerencia_general', 'rrhh', 'presidencia'],
+    ],
+
+    // Rol "comodín" que puede firmar CUALQUIER nivel pendiente (ver
+    // App\Support\HheeAprobadores). La firma queda marcada es_contingencia=1,
+    // salvo que el usuario también tenga el rol legítimo de ese nivel (en ese
+    // caso la firma es normal, con rol_aprobador = el rol legítimo).
+    'rol_contingencia' => 'contingencia',
+
+    // rol (hhee_roles_aprobacion.rol) -> label en español, para catálogos del
+    // front (ver SolicitudHheeController::catalogos()).
+    'roles_labels' => [
+        'jefe' => 'Jefe',
+        'gerente_area' => 'Gerente de área',
+        'gerencia_general' => 'Gerencia general',
+        'rrhh' => 'RRHH',
+        'presidencia' => 'Presidencia',
+        'contingencia' => 'Contingencia',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Catálogo de estados (fuente de verdad: App\Support\HheeEstados)
+    |--------------------------------------------------------------------------
+    |
+    | NO duplicar este mapeo acá: se referencia la constante de la clase, igual
+    | que config('ot.php') hace con App\Support\PrioridadOT.
+    |
+    */
+
+    'estados_labels' => HheeEstados::ESTADOS_LABELS,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Reglas de horas (formulario FO-008-RRH)
+    |--------------------------------------------------------------------------
+    */
+
+    // Tope de horas totales (desglose teórico, suma de los 4 tipos) por
+    // empleado en una solicitud. Ver App\Support\HheeFlujo::validarDesglose().
+    'max_horas_por_empleado' => env('HHEE_MAX_HORAS', 12),
+
+    // Si está en false (default), un aprobador NO puede firmar (ni por
+    // contingencia) una solicitud de la que él mismo es el solicitante.
+    'permitir_autoaprobacion' => env('HHEE_AUTOAPROBACION', false),
+
+    // Rol (hhee_roles_aprobacion.rol) al que se notifica cuando una solicitud
+    // se cierra (carga de horas reales). Ver App\Support\HheeNotificador::notificarCerrada().
+    // NO hardcodear 'rrhh' en HheeNotificador: se referencia esta config.
+    'rol_notificacion_cierre' => 'rrhh',
+
+    // Tipos de hora del desglose (columnas hs_teoricas_*/hs_reales_* de
+    // hhee_solicitud_detalles) -> label en español.
+    'tipos_hora' => [
+        '50' => '50%',
+        '100' => '100%',
+        '50n' => '50% nocturno',
+        '100n' => '100% nocturno',
+    ],
+
+];

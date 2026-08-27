@@ -1,0 +1,92 @@
+// Helpers puros del módulo Horas Extras (HHEE): labels/colores de estado y
+// cálculo en vivo de horas para el preview del formulario. La fuente de
+// verdad de labels/colores es SIEMPRE el catálogo del backend
+// (GET /api/hhee/catalogos -> estados); este archivo solo aporta un fallback
+// local por si el catálogo todavía no cargó, para no dejar la UI en blanco.
+import moment from 'moment';
+
+// Espejo de App\Support\HheeEstados::ESTADOS_LABELS (fallback si el catálogo
+// del backend no llegó a tiempo). NO se usa como fuente de verdad primaria.
+export const ESTADOS_HHEE_FALLBACK = {
+    borrador: { label: 'Borrador', color: 'default' },
+    pendiente_nivel1: { label: 'Pendiente nivel 1', color: 'gold' },
+    pendiente_final: { label: 'Pendiente aprobación final', color: 'orange' },
+    aprobada: { label: 'Aprobada', color: 'green' },
+    cerrada: { label: 'Cerrada', color: 'blue' },
+    rechazada: { label: 'Rechazada', color: 'red' },
+    anulada: { label: 'Anulada', color: 'default' },
+};
+
+/**
+ * Info de UI (label + color de Tag AntD) para un estado, priorizando el
+ * catálogo servido por el backend y cayendo al fallback local si no está.
+ */
+export function getEstadoHheeInfo(catalogoEstados = [], estado) {
+    const delCatalogo = (catalogoEstados || []).find((e) => e.value === estado);
+    if (delCatalogo) {
+        return { label: delCatalogo.label, color: delCatalogo.color };
+    }
+    return ESTADOS_HHEE_FALLBACK[estado] || { label: estado || '—', color: 'default' };
+}
+
+/**
+ * Horas entre dos horarios "HH:mm" (preview en vivo mientras se carga el
+ * formulario). El número que vale de verdad siempre lo recalcula el backend
+ * al guardar; esto es solo para guiar al usuario mientras completa el
+ * desglose teórico.
+ *
+ * Espeja EXACTAMENTE a App\Support\HheeFlujo::calcularHoras(): solo suma un
+ * día si $cruzaMedianoche viene marcado. Si NO se marca el cruce y `hasta` es
+ * "menor o igual" que `desde`, NO se asume que cruzó medianoche (el backend
+ * ahí da un resultado negativo/cero a propósito y lo rechaza en la validación
+ * del desglose, ver HheeFlujo::validarDesglose()): acá se devuelve null para
+ * que el formulario marque la fila como inválida con un mensaje claro, en vez
+ * de mostrar un total "que valida" y que el servidor tire un 422 confuso.
+ */
+export function calcularHoras(horaDesde, horaHasta, cruzaMedianoche = false) {
+    if (!horaDesde || !horaHasta) return null;
+
+    const desde = moment(horaDesde, 'HH:mm', true);
+    const hasta = moment(horaHasta, 'HH:mm', true);
+    if (!desde.isValid() || !hasta.isValid()) return null;
+
+    const hastaAjustada = hasta.clone();
+    if (cruzaMedianoche) {
+        hastaAjustada.add(1, 'day');
+    }
+
+    const minutos = hastaAjustada.diff(desde, 'minutes');
+    if (minutos <= 0) return null;
+
+    return Math.round((minutos / 60) * 100) / 100;
+}
+
+/** Suma del desglose de 4 tipos de hora (teóricas o reales) de una fila. */
+export function sumarDesglose(fila = {}, sufijo = 'teoricas') {
+    const campos = [`hs_${sufijo}_50`, `hs_${sufijo}_100`, `hs_${sufijo}_50n`, `hs_${sufijo}_100n`];
+    return campos.reduce((acc, campo) => acc + (Number(fila[campo]) || 0), 0);
+}
+
+/** Formatea un número de horas con hasta 2 decimales, sin ceros de más (2 -> "2", 2.5 -> "2.5"). */
+export function formatearHoras(valor) {
+    const numero = Number(valor) || 0;
+    return Number.isInteger(numero) ? String(numero) : numero.toFixed(2).replace(/0$/, '');
+}
+
+/** Normaliza "HH:mm:ss" (tal como lo devuelve el backend) a "HH:mm" para los TimePicker. */
+export function horaCorta(hora) {
+    if (!hora) return null;
+    return hora.slice(0, 5);
+}
+
+/**
+ * Iniciales de un nombre para los avatares del timeline de firmas (ej.
+ * "Martín La Forgia" -> "ML"). Devuelve "?" si no hay nombre.
+ */
+export function iniciales(nombre) {
+    if (!nombre || !nombre.trim()) return '?';
+    const partes = nombre.trim().split(/\s+/).filter(Boolean);
+    const primera = partes[0]?.[0] || '';
+    const segunda = partes.length > 1 ? partes[partes.length - 1][0] : '';
+    return `${primera}${segunda}`.toUpperCase();
+}

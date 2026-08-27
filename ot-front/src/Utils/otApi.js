@@ -139,4 +139,4 @@ export function actualizarPrioridadOT(ordenId, payload) {
     });
 }
 
-export { buildQuery };
+export { apiFetch, buildQuery };

@@ -12,14 +12,27 @@ class NotificacionesController extends Controller
     public function index()
     {
         $usuarioLogueado = auth()->user();
-        
+
         $notificaciones = Notificacion::where('usuario_creador_id', $usuarioLogueado->id)
             ->where('leido', false)
             ->with('usuarioMantenimiento') // Incluye la relación para obtener el nombre del usuario
             ->get()
             ->map(function ($notificacion) {
-                $usuarioNombre = $notificacion->usuarioMantenimiento->name ?? 'Usuario desconocido';
-                $notificacion->detalle = "{$usuarioNombre} ha cambiado el estado de la orden de trabajo a {$notificacion->estado_nuevo}";
+                // 'detalle' es un campo calculado (no columna): el texto de la
+                // campana varía según 'tipo' (agregado por la migración de HHEE,
+                // NOT NULL con default 'ot'). Para 'ot' se mantiene EXACTAMENTE
+                // el mismo comportamiento que antes (no romper clientes
+                // existentes); para 'hhee' se arma un texto propio a partir del
+                // 'mensaje' ya armado por App\Support\HheeNotificador. 'tipo' y
+                // 'solicitud_hhee_id' viajan igual en la respuesta por ser
+                // columnas propias del modelo (sin necesidad de agregarlas acá).
+                if ($notificacion->tipo === 'hhee') {
+                    $notificacion->detalle = "Solicitud HHEE #{$notificacion->solicitud_hhee_id} – {$notificacion->mensaje}";
+                } else {
+                    $usuarioNombre = $notificacion->usuarioMantenimiento->name ?? 'Usuario desconocido';
+                    $notificacion->detalle = "{$usuarioNombre} ha cambiado el estado de la orden de trabajo a {$notificacion->estado_nuevo}";
+                }
+
                 return $notificacion;
             });
 

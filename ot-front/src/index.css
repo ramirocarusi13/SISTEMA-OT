@@ -676,12 +676,12 @@
     padding: 14px;
   }
 
-  /* --- Navegación del Header (Órdenes de Trabajo / Reportes) --- */
+  /* --- Navegación del Header (Órdenes de Trabajo / Reportes / Horas Extras) --- */
   .ot-header-nav {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
-    margin: 4px 0 0;
+    gap: 8px;
+    margin: 8px 0 0;
   }
 
   .ot-header-link {
@@ -696,7 +696,7 @@
     font-size: 13px;
     font-weight: 800;
     text-decoration: none;
-    transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+    transition: border-color 160ms ease, background 160ms ease, color 160ms ease, box-shadow 160ms ease;
   }
 
   .ot-header-link:hover {
@@ -705,10 +705,14 @@
     color: var(--primary-strong);
   }
 
+  /* Estado activo "liviano": tinte del acento primario + subrayado interno en
+     vez del relleno degradado de los botones de acción, para que la nav no
+     compita visualmente con los CTA reales de cada pantalla. */
   .ot-header-link.is-active {
     border-color: transparent;
-    background: linear-gradient(135deg, var(--primary), var(--info));
-    color: #ffffff;
+    background: rgba(15, 118, 110, 0.12);
+    color: var(--primary-strong);
+    box-shadow: inset 0 -2px 0 var(--primary);
   }
 
   /* --- Prioridad / SLA (columnas de OrdenTrabajoList y Reportes) --- */
@@ -1239,6 +1243,357 @@
 
   .reportes-tendencia-dot--creadas { background: var(--info); }
   .reportes-tendencia-dot--finalizadas { background: var(--success); }
+
+  /* --- Header: link "Horas Extras" con Badge (icono + texto dentro del badge) --- */
+  .ot-header-link__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* ==========================================================================
+     Módulo Horas Extras (HHEE) — reusa tokens/paleta de :root (--primary,
+     --info, --line, --shadow-card, etc.) y las clases globales de botones
+     (.primary-action/.secondary-action/.danger-action) y tablas
+     (.modern-table): un solo acento de color (teal->azul del resto del
+     sistema), sin gradientes propios ni paletas nuevas.
+     ========================================================================== */
+  .hhee-page {
+    margin-top: 4px;
+  }
+
+  .hhee-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .hhee-catalogos-loading,
+  .hhee-modal-loading {
+    display: flex;
+    justify-content: center;
+    padding: 48px 0;
+  }
+
+  .hhee-empty {
+    margin: 24px 0;
+  }
+
+  /* Tarjeta base para agrupar secciones del formulario/detalle: borde suave +
+     sombra sutil (misma --shadow-card que .profile-card/.ot-summary-card),
+     nunca bloques planos. */
+  .hhee-card {
+    border: 1px solid rgba(217, 226, 236, 0.9);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.96);
+    padding: 20px;
+    box-shadow: var(--shadow-card);
+  }
+
+  .hhee-card + .hhee-card {
+    margin-top: 16px;
+  }
+
+  .hhee-form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .hhee-empleados-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 16px;
+  }
+
+  .hhee-empleados-header h3 {
+    margin: 0;
+    color: #1f2937;
+    font-size: 16px;
+    font-weight: 800;
+  }
+
+  .hhee-tope-nota {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .hhee-input-icono-vinculado {
+    color: var(--primary);
+  }
+
+  .hhee-tabla-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  .hhee-tabla-editable {
+    width: 100%;
+    min-width: 1180px;
+    border-collapse: collapse;
+  }
+
+  .hhee-tabla-editable th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-muted);
+    color: #475569;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-align: left;
+    text-transform: uppercase;
+    padding: 8px;
+    white-space: nowrap;
+  }
+
+  .hhee-tabla-editable td {
+    border-bottom: 1px solid #edf2f7;
+    padding: 6px 8px;
+    vertical-align: middle;
+    transition: background 120ms ease;
+  }
+
+  .hhee-tabla-editable tbody tr:hover td {
+    background: #f8fafc;
+  }
+
+  .hhee-tabla-editable tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .hhee-total-mismatch {
+    color: var(--danger);
+    font-weight: 800;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .hhee-total-ok {
+    color: var(--success);
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .hhee-agregar-empleado {
+    margin-top: 12px;
+  }
+
+  .hhee-total-general {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 16px;
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    color: var(--text);
+    font-size: 14px;
+  }
+
+  .hhee-total-general span {
+    color: var(--muted);
+    font-weight: 650;
+  }
+
+  .hhee-total-general strong {
+    color: var(--text);
+    font-size: 15px;
+  }
+
+  .hhee-detalle-header {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .hhee-detalle-label {
+    margin: 0;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .hhee-detalle-valor {
+    margin: 4px 0 0;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .hhee-alert-estado {
+    margin-bottom: 16px;
+  }
+
+  .hhee-seccion-titulo {
+    margin: 0 0 16px;
+    color: #1f2937;
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .hhee-tag-inline {
+    margin-left: 8px;
+    font-weight: 700;
+  }
+
+  .hhee-firma-pendiente {
+    color: var(--muted);
+    font-style: italic;
+    font-weight: 600;
+  }
+
+  .hhee-firma-info p {
+    margin: 0;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .hhee-firma-info small {
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .hhee-firma-comentario {
+    margin: 4px 0 0 !important;
+    color: #475569;
+    font-size: 13px;
+    font-style: italic;
+    font-weight: 500 !important;
+  }
+
+  /* --- Timeline del circuito de aprobación: avatares con iniciales + línea de
+     conexión, en vez del componente Steps "de catálogo" de AntD. --- */
+  .hhee-timeline {
+    display: grid;
+    gap: 0;
+  }
+
+  .hhee-timeline-item {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 16px;
+  }
+
+  .hhee-timeline-marker {
+    display: grid;
+    justify-items: center;
+  }
+
+  .hhee-timeline-avatar {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 2px solid var(--line);
+    border-radius: 999px;
+    background: #ffffff;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .hhee-timeline-avatar--done {
+    border-color: var(--success);
+    background: rgba(22, 163, 74, 0.1);
+    color: var(--success);
+  }
+
+  .hhee-timeline-avatar--active {
+    border-color: var(--info);
+    background: rgba(37, 99, 235, 0.1);
+    color: var(--info);
+  }
+
+  .hhee-timeline-avatar--rejected {
+    border-color: var(--danger);
+    background: rgba(220, 38, 38, 0.1);
+    color: var(--danger);
+  }
+
+  .hhee-timeline-avatar--pending {
+    color: #94a3b8;
+  }
+
+  .hhee-timeline-connector {
+    width: 2px;
+    flex: 1 1 auto;
+    min-height: 28px;
+    margin: 4px 0;
+    background: var(--line);
+  }
+
+  .hhee-timeline-content {
+    padding-bottom: 24px;
+  }
+
+  .hhee-timeline-item:last-child .hhee-timeline-content {
+    padding-bottom: 0;
+  }
+
+  .hhee-timeline-title {
+    margin: 0 0 6px;
+    color: #1f2937;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .hhee-historial-collapse {
+    margin-top: 16px;
+    border-color: var(--line) !important;
+    border-radius: 14px !important;
+    overflow: hidden;
+  }
+
+  .hhee-historial-collapse .ant-collapse-header {
+    font-weight: 700 !important;
+  }
+
+  .hhee-historial-list {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .hhee-historial-list li {
+    border-bottom: 1px solid #edf2f7;
+    padding-bottom: 10px;
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  .hhee-historial-list li:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .notification-item.is-clickable {
+    cursor: pointer;
+    transition: background 160ms ease, border-color 160ms ease;
+  }
+
+  .notification-item.is-clickable:hover {
+    border-color: rgba(15, 118, 110, 0.32);
+    background: #ecfdf5;
+  }
 }
 
 .ant-btn {
@@ -1342,6 +1697,14 @@
   .dash-table-filters__controls .ant-select {
     flex: 1 1 200px;
   }
+
+  .hhee-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hhee-detalle-header {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 720px) {
@@ -1422,5 +1785,14 @@
 
   .dash-table-filters__controls .ant-select {
     width: 100% !important;
+  }
+
+  .hhee-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .hhee-detalle-header {
+    grid-template-columns: 1fr;
   }
 }

@@ -11,6 +11,7 @@ use App\Http\Controllers\DescripcionController;
 use App\Http\Controllers\NotificacionesController;
 use App\Http\Controllers\MensajeController;
 use App\Http\Controllers\ReporteController;
+use App\Http\Controllers\SolicitudHheeController;
 
 /*
 |---------------------------------------------------------------------------
@@ -95,5 +96,28 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
         Route::get('/departamentos', [ReporteController::class, 'departamentos']);
         Route::get('/mantenimiento', [ReporteController::class, 'mantenimiento']);
         Route::get('/tendencia', [ReporteController::class, 'tendencia']);
+    });
+
+    // -------------------------------------------------------------------
+    // Módulo HHEE (horas extras): dominio propio, sin relación con
+    // ordenes_trabajo, así que queda FUERA de 'bloquear.escritura.orden.ajena'
+    // (ese middleware solo resuelve alcance sobre una OT). La autorización de
+    // escritura del módulo la resuelven App\Support\AlcanceHhee/HheeFlujo.
+    // -------------------------------------------------------------------
+    Route::prefix('hhee')->group(function () {
+        Route::get('/catalogos', [SolicitudHheeController::class, 'catalogos']);
+        Route::get('/pendientes', [SolicitudHheeController::class, 'pendientes']);
+
+        Route::get('/solicitudes', [SolicitudHheeController::class, 'index']);
+        Route::post('/solicitudes', [SolicitudHheeController::class, 'store']);
+        Route::get('/solicitudes/{id}', [SolicitudHheeController::class, 'show']);
+        Route::put('/solicitudes/{id}', [SolicitudHheeController::class, 'update']);
+        Route::delete('/solicitudes/{id}', [SolicitudHheeController::class, 'destroy']);
+
+        Route::post('/solicitudes/{id}/enviar', [SolicitudHheeController::class, 'enviar']);
+        Route::post('/solicitudes/{id}/aprobar', [SolicitudHheeController::class, 'aprobar']);
+        Route::post('/solicitudes/{id}/rechazar', [SolicitudHheeController::class, 'rechazar']);
+        Route::post('/solicitudes/{id}/anular', [SolicitudHheeController::class, 'anular']);
+        Route::post('/solicitudes/{id}/horas-reales', [SolicitudHheeController::class, 'horasReales']);
     });
 });
