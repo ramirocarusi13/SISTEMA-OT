@@ -87,8 +87,8 @@ const KpiCard = ({ label, value, hint, variant = 'neutral' }) => (
 );
 
 /** Envoltorio visual consistente para cada panel del tablero (gráfico o tabla). */
-const DashPanel = ({ title, extra, children, className = '' }) => (
-    <div className={`dash-panel ${className}`}>
+const DashPanel = ({ title, extra, children, className = '', style }) => (
+    <div className={`dash-panel ${className}`} style={style}>
         <div className="dash-panel__header">
             <h3 className="dash-panel__title">{title}</h3>
             {extra}
@@ -242,20 +242,40 @@ const Reportes = () => {
     const veTodosLosDepartamentos = usuario
         ? (parseInt(usuario.departamento_id) === 2 || usuario.rol === 'admin')
         : false;
+
+    // Gerente de Seguridad e Higiene (SyH): además de su propio departamento
+    // ve, en /api/reportes/*, las OT de seguridad de CUALQUIER área (el
+    // alcance ya lo resuelve el backend vía AlcanceOrdenes). El flag
+    // 'es_seguridad_higiene' lo agrega el backend al user del login; tolerante
+    // a que todavía no exista en localStorage (usuarios ya logueados antes del
+    // deploy van a necesitar volver a loguearse para que aparezca) — mientras
+    // tanto cae a `false` y este bloque queda como el fallback ya sabido.
+    const esSeguridadHigiene = !!usuario?.es_seguridad_higiene;
+
+    // "Ve resumen multi-departamento": tanto el rol con alcance global (MTTO/admin)
+    // como SyH necesitan el comparativo por departamento y su fetch. La diferencia
+    // es que a SyH NO se le muestra el Select de filtro por departamento (más abajo,
+    // sigue atado solo a `veTodosLosDepartamentos`): pedir un departamento ajeno
+    // explícito le da 403 en el backend, así que para SyH el resumen viaja SIEMPRE
+    // sin 'departamento_id' y el backend recorta solo a su alcance.
+    const veResumenMultiDepartamento = veTodosLosDepartamentos || esSeguridadHigiene;
+
     const esAnalista = usuario?.rol === 'analista';
 
     const [rango, setRango] = useState([moment().subtract(29, 'days'), moment()]);
     const [departamentoId, setDepartamentoId] = useState(null);
     const [departamentos, setDepartamentos] = useState([]);
 
-    // Carga la lista de departamentos solo para quienes pueden filtrar por más de uno.
+    // Carga la lista de departamentos solo para quienes pueden ver el comparativo
+    // multi-departamento (aunque a SyH no se le muestre el Select de filtro, la
+    // lista se usa igual para resolver nombres en la tabla/el scopeLabel).
     useEffect(() => {
-        if (!veTodosLosDepartamentos) return;
+        if (!veResumenMultiDepartamento) return;
         (async () => {
             const { ok, data } = await fetchDepartamentosApi();
             if (ok && Array.isArray(data)) setDepartamentos(data);
         })();
-    }, [veTodosLosDepartamentos]);
+    }, [veResumenMultiDepartamento]);
 
     const params = useMemo(() => ({
         fecha_inicio: rango?.[0] ? rango[0].format('YYYY-MM-DD') : undefined,
@@ -288,7 +308,7 @@ const Reportes = () => {
     const [deptoError, setDeptoError] = useState(null);
 
     const cargarDeptoRows = useCallback(async () => {
-        if (!veTodosLosDepartamentos) return;
+        if (!veResumenMultiDepartamento) return;
         setDeptoLoading(true);
         setDeptoError(null);
         const { ok, data, error } = await fetchReporteDepartamentos(params);
@@ -298,7 +318,7 @@ const Reportes = () => {
             setDeptoError(error);
         }
         setDeptoLoading(false);
-    }, [params, veTodosLosDepartamentos]);
+    }, [params, veResumenMultiDepartamento]);
 
     useEffect(() => { cargarDeptoRows(); }, [cargarDeptoRows]);
 
@@ -392,12 +412,18 @@ const Reportes = () => {
     };
 
     // --- Performance MTTO: técnicos + tendencia ----------------------------
+    // El reporte "por técnico" es pura performance de Mantenimiento: el backend
+    // le da 403 a propósito a SyH (no tiene técnicos propios, solo ve OT de
+    // seguridad de otras áreas). No tiene sentido pedirlo para después mostrar
+    // el cartel de error en cada visita, así que directamente no se pide.
+    const puedeVerTecnicos = !esAnalista && !esSeguridadHigiene;
+
     const [tecnicos, setTecnicos] = useState([]);
     const [tecnicosLoading, setTecnicosLoading] = useState(false);
     const [tecnicosError, setTecnicosError] = useState(null);
 
     const cargarTecnicos = useCallback(async () => {
-        if (esAnalista) return;
+        if (!puedeVerTecnicos) return;
         setTecnicosLoading(true);
         setTecnicosError(null);
         const { ok, data, error } = await fetchReporteMantenimiento(params);
@@ -407,7 +433,7 @@ const Reportes = () => {
             setTecnicosError(error);
         }
         setTecnicosLoading(false);
-    }, [params, esAnalista]);
+    }, [params, puedeVerTecnicos]);
 
     const [tendencia, setTendencia] = useState([]);
     const [agruparPor, setAgruparPor] = useState('semana');
@@ -429,10 +455,10 @@ const Reportes = () => {
 
     useEffect(() => {
         if (!esAnalista) {
-            cargarTecnicos();
             cargarTendencia();
+            if (puedeVerTecnicos) cargarTecnicos();
         }
-    }, [esAnalista, cargarTecnicos, cargarTendencia]);
+    }, [esAnalista, puedeVerTecnicos, cargarTecnicos, cargarTendencia]);
 
     const kpis = resumen?.resumen;
     const coloresPorPrioridad = resumen?.prioridad_colores || {};
@@ -451,7 +477,9 @@ const Reportes = () => {
 
     const scopeLabel = veTodosLosDepartamentos
         ? (departamentoId ? (departamentos.find((d) => d.id === departamentoId)?.nombre || 'Departamento seleccionado') : 'Todos los departamentos')
-        : (usuario?.departamento?.nombre || 'Tu departamento');
+        : esSeguridadHigiene
+            ? `${usuario?.departamento?.nombre || 'Su departamento'} + OTs de seguridad de toda la planta`
+            : (usuario?.departamento?.nombre || 'Tu departamento');
 
     const columnasOtsActivas = [
         { title: 'N° Orden', dataIndex: 'id', key: 'id', className: 'text-center' },
@@ -640,7 +668,7 @@ const Reportes = () => {
                         )}
                     </EstadoAsync>
 
-                    {veTodosLosDepartamentos && (
+                    {veResumenMultiDepartamento && (
                         <DashPanel title="Comparativo por departamento" className="dash-panel--table">
                             <EstadoAsync
                                 loading={deptoLoading}
@@ -718,28 +746,31 @@ const Reportes = () => {
                         <section className="dash-section">
                             <h2 className="dash-section-title">Performance de mantenimiento</h2>
                             <div className="dash-mtto-grid">
-                                <DashPanel title="Por técnico" className="dash-panel--table">
-                                    <EstadoAsync
-                                        loading={tecnicosLoading}
-                                        error={tecnicosError}
-                                        isEmpty={tecnicos.length === 0}
-                                        onRetry={cargarTecnicos}
-                                        emptyDescription="No hay técnicos con OTs asignadas en este rango."
-                                    >
-                                        <Table
-                                            dataSource={tecnicos}
-                                            columns={columnasTecnicos}
-                                            rowKey="tecnico_id"
-                                            pagination={{ pageSize: 10 }}
-                                            size="small"
-                                            scroll={{ x: 'max-content' }}
-                                            className="modern-table"
-                                        />
-                                    </EstadoAsync>
-                                </DashPanel>
+                                {puedeVerTecnicos && (
+                                    <DashPanel title="Por técnico" className="dash-panel--table">
+                                        <EstadoAsync
+                                            loading={tecnicosLoading}
+                                            error={tecnicosError}
+                                            isEmpty={tecnicos.length === 0}
+                                            onRetry={cargarTecnicos}
+                                            emptyDescription="No hay técnicos con OTs asignadas en este rango."
+                                        >
+                                            <Table
+                                                dataSource={tecnicos}
+                                                columns={columnasTecnicos}
+                                                rowKey="tecnico_id"
+                                                pagination={{ pageSize: 10 }}
+                                                size="small"
+                                                scroll={{ x: 'max-content' }}
+                                                className="modern-table"
+                                            />
+                                        </EstadoAsync>
+                                    </DashPanel>
+                                )}
 
                                 <DashPanel
                                     title="Tendencia: creadas vs finalizadas"
+                                    style={puedeVerTecnicos ? undefined : { gridColumn: '1 / -1' }}
                                     extra={(
                                         <Select
                                             value={agruparPor}

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
-use App\Support\Departamentos;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -37,17 +36,16 @@ class UserController extends Controller
             return response()->json(['message' => 'Usuario no autenticado'], 401);
         }
 
-        // Flag de contexto resuelto en el backend, para que el front no tenga que
-        // hardcodear nombres/ids de departamento en JS. El permiso de escritura ya
-        // NO es un interruptor global (antes 'puede_escribir'): ahora viaja por OT
-        // en el campo 'solo_lectura' de cada orden (ver OrdenTrabajoController::index/show
-        // y App\Support\AlcanceOrdenes::puedeEditar), porque un usuario de SyH puede
-        // escribir en las OTs de su propio departamento y solo es de lectura en las
-        // ajenas que ve por estar marcadas de seguridad.
-        $payload = $user->toArray();
-        $payload['es_seguridad_higiene'] = Departamentos::esSeguridad($user);
-
-        return response()->json($payload);
+        // 'es_seguridad_higiene' ya viaja solo (accessor + $appends en
+        // App\Models\User, ver getEsSeguridadHigieneAttribute()): no hace
+        // falta calcularlo a mano acá. El permiso de escritura tampoco es un
+        // interruptor global (antes 'puede_escribir'): ahora viaja por OT en
+        // el campo 'solo_lectura' de cada orden (ver
+        // OrdenTrabajoController::index/show y App\Support\AlcanceOrdenes::
+        // puedeEditar), porque un usuario de SyH puede escribir en las OTs de
+        // su propio departamento y solo es de lectura en las ajenas que ve
+        // por estar marcadas de seguridad.
+        return response()->json($user->toArray());
     }
 
     /**

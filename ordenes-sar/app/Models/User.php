@@ -4,6 +4,7 @@
 
 namespace App\Models;
 
+use App\Support\Departamentos;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -34,6 +35,34 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
     ];
+
+    /**
+     * 'es_seguridad_higiene' viaja SIEMPRE que se serializa un User
+     * (toArray()/response()->json($user)), sin que cada controller tenga que
+     * acordarse de agregarlo a mano. Hace falta así (accessor + $appends) y no
+     * solo un campo calculado en UserController::getAuthenticatedUser()
+     * (como estaba antes) porque AuthController::login() devuelve el modelo
+     * User CRUDO (response()->json(['user' => $user, ...])) y el front NO
+     * vuelve a pedir GET /api/user después de loguearse: guarda directo en
+     * localStorage el 'user' que vino del login. Si el flag se calculara solo
+     * en getAuthenticatedUser(), el front nunca lo vería ahí (bug real: un
+     * usuario de SyH no veía el resumen por departamentos en Reportes). El
+     * cálculo es liviano (App\Support\Departamentos memoiza el id del
+     * departamento SyH de forma estática, una sola query por proceso/request),
+     * así que no es un problema tenerlo en cualquier serialización de User.
+     */
+    protected $appends = ['es_seguridad_higiene'];
+
+    /**
+     * True si este usuario pertenece al departamento de Seguridad e Higiene
+     * (SyH). Única fuente de verdad: App\Support\Departamentos::esSeguridad()
+     * (la misma que usa App\Support\AlcanceOrdenes para decidir alcance de
+     * lectura/escritura de OTs) -- no se duplica el cálculo acá.
+     */
+    public function getEsSeguridadHigieneAttribute(): bool
+    {
+        return Departamentos::esSeguridad($this);
+    }
 
     // Relación con las órdenes creadas por el usuario
     public function ordenesTrabajo(): HasMany
