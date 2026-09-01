@@ -87,4 +87,19 @@ return [
         '100n' => '100% nocturno',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Sector (hhee_solicitudes.sector)
+    |--------------------------------------------------------------------------
+    |
+    | Opciones fijas del campo "Sector" del formulario FO-008-RRH. Reemplaza
+    | al selector libre de departamento_id: el usuario ya NO elige
+    | departamento (sale siempre del solicitante logueado, ver
+    | App\Support\HheeFlujo::crear()/actualizar()), pero sí elige un sector
+    | descriptivo de estas 4 opciones fijas.
+    |
+    */
+
+    'sectores' => ['Corte', 'Costura', 'Mantenimiento', 'PC'],
+
 ];

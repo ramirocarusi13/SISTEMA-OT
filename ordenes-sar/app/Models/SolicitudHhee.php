@@ -17,6 +17,12 @@ class SolicitudHhee extends Model
     protected $fillable = [
         'solicitante_id',
         'departamento_id',
+        // Sector fijo (Corte/Costura/Mantenimiento/PC, ver
+        // config('hhee.sectores')), distinto de departamento_id: sector es
+        // descriptivo/libre-elegido por el solicitante, departamento_id
+        // sigue rigiendo el ruteo de aprobadores de nivel 1 y ahora SIEMPRE
+        // sale del propio solicitante (ver App\Support\HheeFlujo).
+        'sector',
         'fecha_hhee',
         'turno',
         'observaciones',

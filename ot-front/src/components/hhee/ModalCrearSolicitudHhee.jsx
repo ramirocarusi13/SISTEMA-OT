@@ -7,7 +7,7 @@ import { Modal, DatePicker, Select, Input, Checkbox, Switch, TimePicker, InputNu
 import { PlusOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import { crearSolicitudHhee, actualizarSolicitudHhee } from '../../Utils/hheeApi';
-import { calcularHoras, sumarDesglose, formatearHoras, horaCorta } from '../../Utils/hhee';
+import { calcularHoras, sumarDesglose, formatearHoras, horaCorta, SECTORES_HHEE_FALLBACK } from '../../Utils/hhee';
 
 const { TextArea } = Input;
 
@@ -48,21 +48,27 @@ const filaDesdeDetalle = (detalle) => ({
     hs_teoricas_100n: Number(detalle.hs_teoricas_100n) || 0,
 });
 
-const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, departamentos = [], usuarios = [], maxHorasPorEmpleado = 12, onSuccess }) => {
+const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES_HHEE_FALLBACK, usuarios = [], maxHorasPorEmpleado = 12, onSuccess }) => {
     const esEdicion = !!solicitud;
     const [fechaHhee, setFechaHhee] = useState(null);
-    const [departamentoId, setDepartamentoId] = useState(null);
+    const [sector, setSector] = useState(null);
     const [turno, setTurno] = useState('');
     const [observaciones, setObservaciones] = useState('');
     const [filas, setFilas] = useState([nuevaFilaVacia()]);
     const [guardando, setGuardando] = useState(null); // null | 'borrador' | 'enviar'
+
+    // El departamento_id ya NO se elige a mano: el backend lo resuelve del
+    // usuario logueado (ver ordenes-sar/app/Http/Controllers/SolicitudHheeController.php,
+    // validarPayload() ya no acepta ese campo, se ignora si viaja). Lo único
+    // que carga el solicitante es el sector del turno.
+    const opcionesSector = sectores.length ? sectores : SECTORES_HHEE_FALLBACK;
 
     useEffect(() => {
         if (!open) return;
 
         if (solicitud) {
             setFechaHhee(solicitud.fecha_hhee ? moment(solicitud.fecha_hhee) : null);
-            setDepartamentoId(solicitud.departamento_id || null);
+            setSector(solicitud.sector || null);
             setTurno(solicitud.turno || '');
             setObservaciones(solicitud.observaciones || '');
             setFilas((solicitud.detalles || []).length > 0
@@ -70,7 +76,7 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, departamentos = [],
                 : [nuevaFilaVacia()]);
         } else {
             setFechaHhee(null);
-            setDepartamentoId(null);
+            setSector(null);
             setTurno('');
             setObservaciones('');
             setFilas([nuevaFilaVacia()]);
@@ -104,7 +110,7 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, departamentos = [],
 
     const validar = () => {
         if (!fechaHhee) return 'Debe indicar la fecha de la solicitud.';
-        if (!departamentoId) return 'Debe seleccionar un departamento/sector.';
+        if (!sector) return 'Debe seleccionar un sector.';
         if (filas.length === 0) return 'Debe agregar al menos un empleado.';
 
         for (let i = 0; i < filas.length; i += 1) {
@@ -132,7 +138,7 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, departamentos = [],
 
     const construirPayload = (enviar) => ({
         fecha_hhee: fechaHhee.format('YYYY-MM-DD'),
-        departamento_id: departamentoId,
+        sector,
         turno: turno || null,
         observaciones: observaciones || null,
         enviar,
@@ -212,13 +218,13 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, departamentos = [],
                 </div>
 
                 <div className="form-field">
-                    <label className="form-label" htmlFor="hhee-departamento">Sector / Departamento</label>
+                    <label className="form-label" htmlFor="hhee-sector">Sector</label>
                     <Select
-                        id="hhee-departamento"
-                        placeholder="Seleccione un departamento"
-                        value={departamentoId}
-                        onChange={setDepartamentoId}
-                        options={departamentos.map((d) => ({ value: d.id, label: d.nombre }))}
+                        id="hhee-sector"
+                        placeholder="Seleccione un sector"
+                        value={sector}
+                        onChange={setSector}
+                        options={opcionesSector.map((s) => ({ value: s, label: s }))}
                         style={{ width: '100%' }}
                     />
                 </div>

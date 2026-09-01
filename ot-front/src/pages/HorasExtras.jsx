@@ -9,7 +9,7 @@ import SolicitudHheeFilter from '../components/hhee/SolicitudHheeFilter';
 import ModalCrearSolicitudHhee from '../components/hhee/ModalCrearSolicitudHhee';
 import ModalDetalleSolicitudHhee from '../components/hhee/ModalDetalleSolicitudHhee';
 import { fetchCatalogosHhee, fetchSolicitudesHhee, fetchPendientesHhee } from '../Utils/hheeApi';
-import { getEstadoHheeInfo, formatearHoras } from '../Utils/hhee';
+import { getEstadoHheeInfo, formatearHoras, getSectoresHhee, sectorOFallback } from '../Utils/hhee';
 
 const PAGE_SIZE_DEFAULT = 10;
 
@@ -22,7 +22,7 @@ const estadoInicialTabla = () => ({
     total: 0,
 });
 
-const estadoInicialFiltros = () => ({ estado: [], rango: [], departamentoId: undefined });
+const estadoInicialFiltros = () => ({ estado: [], rango: [], sector: undefined });
 
 const HorasExtras = () => {
     const [searchParams, setSearchParams] = useSearchParams();
@@ -96,7 +96,7 @@ const HorasExtras = () => {
         const { ok, data, error } = await fetchSolicitudesHhee({
             solicitante_id: usuario.id,
             estado: filtrosPropias.estado,
-            departamento_id: filtrosPropias.departamentoId,
+            sector: filtrosPropias.sector,
             fecha_desde: fechaDesde ? fechaDesde.format('YYYY-MM-DD') : undefined,
             fecha_hasta: fechaHasta ? fechaHasta.format('YYYY-MM-DD') : undefined,
             per_page: pageSize,
@@ -121,7 +121,7 @@ const HorasExtras = () => {
         const [fechaDesde, fechaHasta] = filtrosTodas.rango;
         const { ok, data, error } = await fetchSolicitudesHhee({
             estado: filtrosTodas.estado,
-            departamento_id: filtrosTodas.departamentoId,
+            sector: filtrosTodas.sector,
             fecha_desde: fechaDesde ? fechaDesde.format('YYYY-MM-DD') : undefined,
             fecha_hasta: fechaHasta ? fechaHasta.format('YYYY-MM-DD') : undefined,
             per_page: pageSize,
@@ -201,7 +201,7 @@ const HorasExtras = () => {
                 key: 'fecha_hhee',
                 render: (v) => (v ? moment(v).format('DD/MM/YYYY') : '—'),
             },
-            { title: 'Departamento', key: 'departamento', render: (_, r) => r.departamento?.nombre || '—' },
+            { title: 'Sector', key: 'sector', render: (_, r) => sectorOFallback(r) },
             { title: 'Turno', dataIndex: 'turno', key: 'turno', render: (v) => v || '—' },
         ];
 
@@ -252,13 +252,13 @@ const HorasExtras = () => {
             <div className="ot-toolbar hhee-toolbar">
                 <SolicitudHheeFilter
                     estados={catalogos?.estados || []}
-                    departamentos={catalogos?.departamentos || []}
+                    sectores={getSectoresHhee(catalogos)}
                     estadoSeleccionado={filtros.estado}
                     rangoFechas={filtros.rango}
-                    departamentoSeleccionado={filtros.departamentoId}
+                    sectorSeleccionado={filtros.sector}
                     onChangeEstado={(estado) => setFiltros((prev) => ({ ...prev, estado }))}
                     onChangeRangoFechas={(rango) => setFiltros((prev) => ({ ...prev, rango }))}
-                    onChangeDepartamento={(departamentoId) => setFiltros((prev) => ({ ...prev, departamentoId }))}
+                    onChangeSector={(sector) => setFiltros((prev) => ({ ...prev, sector }))}
                 />
                 <Button type="primary" icon={<SearchOutlined />} onClick={() => onCargar(1, tabla.pageSize)}>
                     Aplicar filtros
@@ -375,7 +375,7 @@ const HorasExtras = () => {
             <ModalCrearSolicitudHhee
                 open={modalCrearOpen}
                 solicitud={null}
-                departamentos={catalogos?.departamentos || []}
+                sectores={getSectoresHhee(catalogos)}
                 usuarios={catalogos?.usuarios || []}
                 maxHorasPorEmpleado={catalogos?.max_horas_por_empleado}
                 onClose={() => setModalCrearOpen(false)}

@@ -26,6 +26,18 @@ use Illuminate\Validation\ValidationException;
  *   una solicitud que no es borrador", "el desglose no cierra", etc.
  * - Autorización (HheeAutorizacionException, 403 en el controller): "no sos
  *   el solicitante", "no tenés el rol para firmar este nivel", etc.
+ *
+ * departamento_id vs. sector: el formulario ya NO deja elegir departamento
+ * (antes era libre); 'sector' es un campo puramente descriptivo de 4 opciones
+ * fijas (ver config('hhee.sectores')). hhee_solicitudes.departamento_id se
+ * sigue guardando -y sigue siendo el que rutea la firma de nivel 1 (ver
+ * App\Support\HheeAprobadores)-, pero SIEMPRE se toma de
+ * $usuario->departamento_id (el solicitante logueado), nunca del payload
+ * (crear()/actualizar() ignoran cualquier departamento_id que venga en
+ * $datos). Efecto colateral buscado: ya no existe la posibilidad de "desviar"
+ * el circuito de aprobación eligiendo a mano el departamento de la solicitud
+ * (antes era un campo libre en el form) -- el jefe que firma nivel 1 es
+ * siempre el de la SOLICITANTE, no uno arbitrario.
  */
 class HheeFlujo
 {
@@ -40,7 +52,10 @@ class HheeFlujo
         return DB::transaction(function () use ($datos, $usuario) {
             $solicitud = SolicitudHhee::create([
                 'solicitante_id' => $usuario->id,
-                'departamento_id' => $datos['departamento_id'],
+                // Siempre el del solicitante logueado, NUNCA del payload
+                // (ver comentario de clase).
+                'departamento_id' => $usuario->departamento_id,
+                'sector' => $datos['sector'],
                 'fecha_hhee' => $datos['fecha_hhee'],
                 'turno' => $datos['turno'] ?? null,
                 'observaciones' => $datos['observaciones'] ?? null,
@@ -76,7 +91,10 @@ class HheeFlujo
 
         return DB::transaction(function () use ($solicitud, $datos, $usuario) {
             $solicitud->update([
-                'departamento_id' => $datos['departamento_id'],
+                // Siempre el del solicitante logueado (mismo usuario que creó
+                // el borrador, ver chequeo de arriba), NUNCA del payload.
+                'departamento_id' => $usuario->departamento_id,
+                'sector' => $datos['sector'],
                 'fecha_hhee' => $datos['fecha_hhee'],
                 'turno' => $datos['turno'] ?? null,
                 'observaciones' => $datos['observaciones'] ?? null,

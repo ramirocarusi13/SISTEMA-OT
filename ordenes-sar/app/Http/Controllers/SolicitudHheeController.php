@@ -20,7 +20,8 @@ class SolicitudHheeController extends Controller
     /**
      * Catálogos para el front: estados, roles, tipos de hora, niveles que
      * puede firmar el usuario logueado, si tiene contingencia, tope de horas,
-     * departamentos y usuarios (para el select del formulario FO-008-RRH).
+     * sectores, departamentos y usuarios (para el select del formulario
+     * FO-008-RRH).
      *
      * 'usuarios' se resuelve ACÁ (no en un endpoint aparte
      * GET /api/hhee/usuarios): el payload es liviano (solo id/name/
@@ -29,6 +30,12 @@ class SolicitudHheeController extends Controller
      * entrar; separarlo en otro endpoint solo para esto sumaría un round-trip
      * más sin necesidad. Si esta tabla creciera mucho (miles de usuarios) sí
      * ameritaría paginar/buscar server-side en un endpoint propio.
+     *
+     * 'departamentos' se deja por compatibilidad (ya no se usa para elegir
+     * departamento en el form -eso ahora es 'sector', fijo-, pero el filtro
+     * 'departamento_id' del listado y las tabs de aprobadores del front
+     * pueden seguir necesitándolo). Si en algún momento el front deja de
+     * consumirlo del todo, se puede sacar de acá.
      */
     public function catalogos()
     {
@@ -38,6 +45,7 @@ class SolicitudHheeController extends Controller
             'estados' => HheeEstados::catalogo(),
             'roles_labels' => config('hhee.roles_labels'),
             'tipos_hora' => config('hhee.tipos_hora'),
+            'sectores' => config('hhee.sectores'),
             'mis_niveles' => HheeAprobadores::nivelesGenerales($user),
             'es_contingencia' => HheeAprobadores::tieneRolContingenciaActivo($user),
             'max_horas_por_empleado' => (float) config('hhee.max_horas_por_empleado'),
@@ -49,7 +57,7 @@ class SolicitudHheeController extends Controller
     /**
      * Listado paginado con el alcance de App\Support\AlcanceHhee y filtros
      * opcionales (estado[], fecha_desde, fecha_hasta, departamento_id,
-     * solicitante_id, solo_pendientes_mias).
+     * sector, solicitante_id, solo_pendientes_mias).
      */
     public function index(Request $request)
     {
@@ -61,7 +69,11 @@ class SolicitudHheeController extends Controller
             'estado.*' => ['string', Rule::in(HheeEstados::estados())],
             'fecha_desde' => 'nullable|date',
             'fecha_hasta' => 'nullable|date',
+            // departamento_id se mantiene (lo usan las tabs de aprobadores,
+            // que siguen agrupando por departamento); 'sector' es el filtro
+            // nuevo, descriptivo, de las 4 opciones fijas.
             'departamento_id' => 'nullable|integer|exists:departamentos,id',
+            'sector' => ['nullable', 'string', Rule::in(config('hhee.sectores'))],
             'solicitante_id' => 'nullable|integer|exists:users,id',
             'solo_pendientes_mias' => 'nullable|boolean',
             'per_page' => 'nullable|integer|min:1|max:100',
@@ -91,6 +103,10 @@ class SolicitudHheeController extends Controller
 
             if (!empty($filtros['departamento_id'])) {
                 $query->where('departamento_id', $filtros['departamento_id']);
+            }
+
+            if (!empty($filtros['sector'])) {
+                $query->where('sector', $filtros['sector']);
             }
 
             if (!empty($filtros['solicitante_id'])) {
@@ -357,12 +373,19 @@ class SolicitudHheeController extends Controller
      * de negocio adicional (suma del desglose == horas del turno, tope por
      * empleado, duplicados) la hace App\Support\HheeFlujo (validarDetalles()),
      * no acá: acá solo se valida la FORMA del payload.
+     *
+     * departamento_id NO se valida (ni se acepta) acá a propósito: si el
+     * cliente lo manda igual, $request->validate() simplemente lo descarta
+     * (no rompe con 422 por campo extra, Laravel no valida "strict" por
+     * default) y App\Support\HheeFlujo::crear()/actualizar() lo ignoran del
+     * todo -- el departamento SIEMPRE sale de auth()->user()->departamento_id.
+     * En su lugar va 'sector' (Corte/Costura/Mantenimiento/PC).
      */
     private function validarPayload(Request $request): array
     {
         return $request->validate([
             'fecha_hhee' => 'required|date',
-            'departamento_id' => 'required|exists:departamentos,id',
+            'sector' => ['required', 'string', Rule::in(config('hhee.sectores'))],
             'turno' => 'nullable|string|max:50',
             'observaciones' => 'nullable|string|max:1000',
             'enviar' => 'boolean',

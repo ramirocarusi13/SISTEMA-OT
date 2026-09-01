@@ -119,7 +119,7 @@ class GroupLeaderNoMantenimientoTest extends TestCase
         Passport::actingAs($marina);
         $crear = $this->postJson('/api/hhee/solicitudes', [
             'fecha_hhee' => now()->toDateString(),
-            'departamento_id' => $produccion->id,
+            'sector' => 'Corte',
             'turno' => 'Turno Mañana',
             'detalles' => [[
                 'nombre' => 'Juan Pérez',

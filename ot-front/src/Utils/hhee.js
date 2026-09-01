@@ -90,3 +90,24 @@ export function iniciales(nombre) {
     const segunda = partes.length > 1 ? partes[partes.length - 1][0] : '';
     return `${primera}${segunda}`.toUpperCase();
 }
+
+// El departamento_id ya no se elige a mano: el backend lo resuelve del usuario
+// logueado. Lo que sí carga el solicitante es el "Sector" del turno (valores
+// fijos del formulario FO-008-RRH). Fallback local por si catalogos.sectores
+// todavía no vino del backend (módulo en desarrollo en paralelo).
+export const SECTORES_HHEE_FALLBACK = ['Corte', 'Costura', 'Mantenimiento', 'PC'];
+
+/** Opciones de sector: catálogo del backend (catalogos.sectores) si ya está, si no el fallback fijo de arriba. */
+export function getSectoresHhee(catalogos) {
+    return catalogos?.sectores?.length ? catalogos.sectores : SECTORES_HHEE_FALLBACK;
+}
+
+/**
+ * Sector a mostrar en tablas/detalle: 'sector' si la solicitud ya lo trae
+ * (flujo nuevo), si no el nombre del departamento (solicitudes viejas,
+ * cargadas antes de este cambio, que todavía tienen departamento_id/relación
+ * cargada), si no "—".
+ */
+export function sectorOFallback(solicitud) {
+    return solicitud?.sector || solicitud?.departamento?.nombre || '—';
+}

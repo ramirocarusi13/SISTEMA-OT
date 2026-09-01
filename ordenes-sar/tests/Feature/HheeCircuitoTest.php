@@ -95,11 +95,20 @@ class HheeCircuitoTest extends TestCase
         ], $overrides);
     }
 
+    /**
+     * $departamento ya NO viaja en el payload (departamento_id se ignora del
+     * todo, ver App\Support\HheeFlujo): se mantiene como parámetro solo
+     * porque casi todos los tests arman el usuario solicitante con ese mismo
+     * $departamento, y el departamento REAL de la solicitud resultante sale
+     * de auth()->user()->departamento_id (que en los tests coincide, porque
+     * el solicitante que actúa fue creado con ese $departamento). En su lugar
+     * va 'sector' (Corte/Costura/Mantenimiento/PC, ver config('hhee.sectores')).
+     */
     private function payload(Departamento $departamento, array $detalles = null, array $overrides = []): array
     {
         return array_merge([
             'fecha_hhee' => now()->toDateString(),
-            'departamento_id' => $departamento->id,
+            'sector' => 'Corte',
             'turno' => 'Turno Mañana',
             'observaciones' => 'Solicitud de prueba',
             'detalles' => $detalles ?? [$this->detalle()],
@@ -298,19 +307,26 @@ class HheeCircuitoTest extends TestCase
         $aprobar->assertJsonPath('estado', 'aprobada');
     }
 
-    public function test_enviar_con_solicitante_jefe_de_otro_depto_no_dispara_firma_implicita(): void
+    public function test_enviar_con_rol_nivel1_escopeado_a_otro_departamento_no_dispara_firma_implicita(): void
     {
-        // Es jefe legítimo de nivel 1, pero de OTRO departamento: no matchea
-        // el departamento_id de esta solicitud, así que no hay firma
-        // implícita (mismo alcance departamental que rige el resto del
-        // módulo, ver HheeAprobadores::rolLegitimoParaNivel()).
+        // El departamento de la solicitud SIEMPRE es el del solicitante (ver
+        // App\Support\HheeFlujo): ya no se puede "elegir" a mano un
+        // departamento distinto en el payload (eso es justamente lo que
+        // eliminó la posibilidad de desviar el circuito a otro jefe). Para
+        // simular el mismatch departamental acá hay que hacerlo por el lado
+        // del ROL: el usuario pertenece a $deptoPropio (así que su solicitud
+        // queda con ese departamento), pero su rol 'jefe' de nivel 1 está
+        // escopeado a OTRO departamento -> no matchea, no hay firma implícita
+        // (mismo alcance departamental que rige el resto del módulo, ver
+        // HheeAprobadores::rolLegitimoParaNivel()).
         $deptoPropio = $this->departamento('Producción');
         $otroDepto = $this->departamento('IT');
         $jefeProduccion = $this->usuario($deptoPropio);
-        $this->asignarRolHhee($jefeProduccion, 'jefe', $deptoPropio->id);
+        $this->asignarRolHhee($jefeProduccion, 'jefe', $otroDepto->id);
 
-        $solicitud = $this->crearYEnviar($jefeProduccion, $otroDepto);
+        $solicitud = $this->crearYEnviar($jefeProduccion, $deptoPropio);
 
+        $this->assertSame($deptoPropio->id, $solicitud->fresh()->departamento_id);
         $this->assertSame('pendiente_nivel1', $solicitud->fresh()->estado);
         $this->assertNull($solicitud->fresh()->fecha_aprobacion_nivel1);
     }
@@ -698,6 +714,65 @@ class HheeCircuitoTest extends TestCase
         $crear->assertJsonValidationErrors(['detalles.0.localidad']);
     }
 
+    public function test_store_con_sector_invalido_da_422(): void
+    {
+        $depto = $this->departamento();
+        $gl = $this->usuario($depto);
+
+        Passport::actingAs($gl);
+        $crear = $this->postJson('/api/hhee/solicitudes', $this->payload($depto, null, ['sector' => 'Depósito']));
+        $crear->assertStatus(422);
+        $crear->assertJsonValidationErrors(['sector']);
+    }
+
+    public function test_store_sin_sector_da_422(): void
+    {
+        $depto = $this->departamento();
+        $gl = $this->usuario($depto);
+
+        $payload = $this->payload($depto);
+        unset($payload['sector']);
+
+        Passport::actingAs($gl);
+        $crear = $this->postJson('/api/hhee/solicitudes', $payload);
+        $crear->assertStatus(422);
+        $crear->assertJsonValidationErrors(['sector']);
+    }
+
+    public function test_el_departamento_de_la_solicitud_es_siempre_el_del_solicitante_aunque_el_payload_traiga_otro(): void
+    {
+        $deptoSolicitante = $this->departamento('Producción');
+        $otroDepto = $this->departamento('IT');
+        $gl = $this->usuario($deptoSolicitante);
+
+        Passport::actingAs($gl);
+        // Manda 'departamento_id' de OTRO departamento en el payload: ya no
+        // se acepta (no hay regla de validación para ese campo), así que
+        // Laravel lo descarta sin romper con 422 por "campo extra", y
+        // App\Support\HheeFlujo lo ignora del todo -> el departamento real de
+        // la solicitud es SIEMPRE el del solicitante logueado.
+        $crear = $this->postJson('/api/hhee/solicitudes', array_merge(
+            $this->payload($deptoSolicitante),
+            ['departamento_id' => $otroDepto->id]
+        ));
+
+        $crear->assertStatus(201);
+        $id = $crear->json('id');
+
+        $solicitud = SolicitudHhee::findOrFail($id);
+        $this->assertSame($deptoSolicitante->id, $solicitud->departamento_id);
+        $this->assertNotSame($otroDepto->id, $solicitud->departamento_id);
+
+        // update() también lo ignora, por más que el body lo traiga.
+        $tercerDepto = $this->departamento('Calidad');
+        $editar = $this->putJson("/api/hhee/solicitudes/{$id}", array_merge(
+            $this->payload($deptoSolicitante),
+            ['departamento_id' => $tercerDepto->id]
+        ));
+        $editar->assertStatus(200);
+        $this->assertSame($deptoSolicitante->id, $solicitud->fresh()->departamento_id);
+    }
+
     public function test_store_persiste_el_user_id_opcional_del_detalle_para_el_buscador_de_empleados(): void
     {
         $depto = $this->departamento();
@@ -767,6 +842,17 @@ class HheeCircuitoTest extends TestCase
         $this->assertLessThan($indiceZzz, $indiceAaa);
     }
 
+    public function test_catalogos_incluye_los_4_sectores_fijos(): void
+    {
+        $depto = $this->departamento();
+        $gl = $this->usuario($depto);
+
+        Passport::actingAs($gl);
+        $catalogos = $this->getJson('/api/hhee/catalogos');
+        $catalogos->assertStatus(200);
+        $catalogos->assertJsonPath('sectores', ['Corte', 'Costura', 'Mantenimiento', 'PC']);
+    }
+
     // =========================================================================
     // Alcance del listado (App\Support\AlcanceHhee)
     // =========================================================================
@@ -803,6 +889,42 @@ class HheeCircuitoTest extends TestCase
         Passport::actingAs($rrhh);
         $idsRrhh = $this->getJson('/api/hhee/solicitudes?per_page=100')->json('data.*.id');
         $this->assertEqualsCanonicalizing([$enviadaA, $enviadaB], $idsRrhh);
+    }
+
+    public function test_index_incluye_sector_en_la_respuesta_y_permite_filtrar_por_sector(): void
+    {
+        $depto = $this->departamento();
+        $gl = $this->usuario($depto);
+
+        Passport::actingAs($gl);
+        $idCorte = $this->postJson('/api/hhee/solicitudes', $this->payload($depto, null, ['sector' => 'Corte']))->json('id');
+        $this->postJson('/api/hhee/solicitudes', $this->payload($depto, null, ['sector' => 'Costura']))->json('id');
+
+        $listado = $this->getJson('/api/hhee/solicitudes?per_page=100');
+        $listado->assertStatus(200);
+        $solicitudCorte = collect($listado->json('data'))->firstWhere('id', $idCorte);
+        $this->assertSame('Corte', $solicitudCorte['sector']);
+
+        $filtrado = $this->getJson('/api/hhee/solicitudes?sector=Corte&per_page=100');
+        $filtrado->assertStatus(200);
+        $this->assertEqualsCanonicalizing([$idCorte], collect($filtrado->json('data'))->pluck('id')->all());
+
+        $filtroInvalido = $this->getJson('/api/hhee/solicitudes?sector=NoExiste');
+        $filtroInvalido->assertStatus(422);
+        $filtroInvalido->assertJsonValidationErrors(['sector']);
+    }
+
+    public function test_show_incluye_sector(): void
+    {
+        $depto = $this->departamento();
+        $gl = $this->usuario($depto);
+
+        Passport::actingAs($gl);
+        $id = $this->postJson('/api/hhee/solicitudes', $this->payload($depto, null, ['sector' => 'PC']))->json('id');
+
+        $show = $this->getJson("/api/hhee/solicitudes/{$id}");
+        $show->assertStatus(200);
+        $show->assertJsonPath('sector', 'PC');
     }
 
     // =========================================================================
@@ -1108,13 +1230,17 @@ class HheeCircuitoTest extends TestCase
      */
     public function test_pendientes_excluye_la_propia_solicitud_pendiente_final_de_un_aprobador_nivel_final(): void
     {
-        $depto = $this->departamento();
-        $jefe = $this->usuario($depto);
-        $rrhh = $this->usuario($this->departamento('RRHH'));
-        $this->asignarRolHhee($jefe, 'jefe', $depto->id);
+        // El departamento de la solicitud SIEMPRE es el del solicitante (ver
+        // App\Support\HheeFlujo): rrhh y el jefe que aprueba nivel 1 tienen
+        // que pertenecer/estar escopeados al MISMO departamento para que el
+        // jefe pueda firmar la solicitud que crea rrhh.
+        $deptoRrhh = $this->departamento('RRHH');
+        $jefe = $this->usuario($deptoRrhh);
+        $rrhh = $this->usuario($deptoRrhh);
+        $this->asignarRolHhee($jefe, 'jefe', $deptoRrhh->id);
         $this->asignarRolHhee($rrhh, 'rrhh', null);
 
-        $solicitud = $this->crearYEnviar($rrhh, $depto);
+        $solicitud = $this->crearYEnviar($rrhh, $deptoRrhh);
         Passport::actingAs($jefe);
         $this->postJson("/api/hhee/solicitudes/{$solicitud->id}/aprobar")->assertStatus(200);
         $this->assertSame('pendiente_final', $solicitud->fresh()->estado);

@@ -11,7 +11,7 @@ import {
     aprobarSolicitudHhee,
     anularSolicitudHhee,
 } from '../../Utils/hheeApi';
-import { getEstadoHheeInfo, formatearHoras, sumarDesglose, horaCorta, iniciales } from '../../Utils/hhee';
+import { getEstadoHheeInfo, formatearHoras, sumarDesglose, horaCorta, iniciales, getSectoresHhee, sectorOFallback } from '../../Utils/hhee';
 import ModalCrearSolicitudHhee from './ModalCrearSolicitudHhee';
 import ModalRechazarSolicitudHhee from './ModalRechazarSolicitudHhee';
 import ModalHorasRealesHhee from './ModalHorasRealesHhee';
@@ -283,8 +283,8 @@ const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onCh
                                 <p className="hhee-detalle-valor">{moment(solicitud.fecha_hhee).format('DD/MM/YYYY')}</p>
                             </div>
                             <div>
-                                <p className="hhee-detalle-label">Departamento</p>
-                                <p className="hhee-detalle-valor">{solicitud.departamento?.nombre || '—'}</p>
+                                <p className="hhee-detalle-label">Sector</p>
+                                <p className="hhee-detalle-valor">{sectorOFallback(solicitud)}</p>
                             </div>
                             <div>
                                 <p className="hhee-detalle-label">Turno</p>
@@ -415,7 +415,7 @@ const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onCh
                 <ModalCrearSolicitudHhee
                     open={editando}
                     solicitud={solicitud}
-                    departamentos={catalogos?.departamentos || []}
+                    sectores={getSectoresHhee(catalogos)}
                     usuarios={catalogos?.usuarios || []}
                     maxHorasPorEmpleado={catalogos?.max_horas_por_empleado}
                     onClose={() => setEditando(false)}

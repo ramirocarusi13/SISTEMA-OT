@@ -1,6 +1,6 @@
-// Panel de filtros de Solicitudes de HHEE: estado, rango de fechas y
-// departamento. Espejo de components/OrdenTrabajoFilter.jsx: componente
-// controlado, sin fetch propio, el padre decide cuándo aplicar los filtros.
+// Panel de filtros de Solicitudes de HHEE: estado, rango de fechas y sector.
+// Espejo de components/OrdenTrabajoFilter.jsx: componente controlado, sin
+// fetch propio, el padre decide cuándo aplicar los filtros.
 import React from 'react';
 import { DatePicker, Select } from 'antd';
 
@@ -8,13 +8,13 @@ const { RangePicker } = DatePicker;
 
 const SolicitudHheeFilter = ({
     estados = [],
-    departamentos = [],
+    sectores = [],
     estadoSeleccionado = [],
     rangoFechas = [],
-    departamentoSeleccionado,
+    sectorSeleccionado,
     onChangeEstado,
     onChangeRangoFechas,
-    onChangeDepartamento,
+    onChangeSector,
 }) => {
     return (
         <div className="ot-filter-group" role="group" aria-label="Filtros de solicitudes de horas extras">
@@ -31,11 +31,11 @@ const SolicitudHheeFilter = ({
 
             <Select
                 allowClear
-                placeholder="Departamento"
+                placeholder="Sector"
                 style={{ minWidth: 200 }}
-                value={departamentoSeleccionado}
-                onChange={onChangeDepartamento}
-                options={departamentos.map((d) => ({ value: d.id, label: d.nombre }))}
+                value={sectorSeleccionado}
+                onChange={onChangeSector}
+                options={sectores.map((s) => ({ value: s, label: s }))}
             />
 
             <RangePicker

@@ -4,24 +4,28 @@
 import { apiFetch, buildQuery } from './otApi';
 
 // GET /api/hhee/catalogos -> { estados, roles_labels, tipos_hora, mis_niveles,
-// es_contingencia, max_horas_por_empleado, departamentos }
+// es_contingencia, max_horas_por_empleado, departamentos, usuarios, sectores }
+// ('sectores' y el resto de departamentos/usuarios son opcionales según la
+// versión del backend desplegada; ver Utils/hhee.js getSectoresHhee() para el
+// fallback si 'sectores' todavía no vino).
 export function fetchCatalogosHhee() {
     return apiFetch('hhee/catalogos');
 }
 
 // GET /api/hhee/pendientes -> { total, solicitudes } (para el badge de la campana/nav y la tab "Pendientes de mi firma").
 // El polling del Header solo necesita el número: se pide con soloTotal=true para
-// mandar `?solo_total=1` (hoy SolicitudHheeController::pendientes() todavía no lo
-// lee y devuelve siempre las filas completas; el parámetro queda ignorado sin
-// romper nada, listo para que backend-laravel lo optimice cuando lo agregue). El
-// front NO asume el shape de la respuesta: components/Header.jsx acepta tanto
-// {total} solo como {total, solicitudes} completo.
+// mandar `?solo_total=1` (SolicitudHheeController::pendientes() ya lo soporta y
+// devuelve solo {total} en ese caso). El front NO asume el shape de la
+// respuesta igual: components/Header.jsx acepta tanto {total} solo como
+// {total, solicitudes} completo, por si corre contra un backend viejo.
 export function fetchPendientesHhee(soloTotal = false) {
     return apiFetch(`hhee/pendientes${soloTotal ? '?solo_total=1' : ''}`);
 }
 
 // GET /api/hhee/solicitudes (paginado estilo Laravel). Filtros soportados:
-// estado[], fecha_desde, fecha_hasta, departamento_id, solicitante_id, solo_pendientes_mias, per_page, page
+// estado[], fecha_desde, fecha_hasta, sector, solicitante_id, solo_pendientes_mias, per_page, page
+// ('departamento_id' se mantiene como alias legacy en el back mientras conviven
+// solicitudes viejas con y sin 'sector'; el front ya solo manda 'sector').
 export function fetchSolicitudesHhee(params) {
     const qs = buildQuery(params);
     return apiFetch(`hhee/solicitudes${qs ? `?${qs}` : ''}`);
