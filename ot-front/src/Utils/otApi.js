@@ -131,6 +131,14 @@ export function fetchMensajesOT(ordenId) {
     return apiFetch(`ordenes-trabajo/${ordenId}/mensajes`);
 }
 
+// GET /api/ordenes-trabajo/{id}/descripciones -> descripciones de avance de la OT
+// (mismo endpoint que usa components/ModalDescripcion.jsx). El backend está
+// agregando un chequeo de alcance (puedeVer): puede devolver 403 si el usuario
+// no tiene acceso a esa OT puntual; apiFetch ya lo mapea a un mensaje legible.
+export function fetchDescripcionesOrden(ordenId) {
+    return apiFetch(`ordenes-trabajo/${ordenId}/descripciones`);
+}
+
 // PUT /api/ordenes-trabajo/{id}/prioridad
 export function actualizarPrioridadOT(ordenId, payload) {
     return apiFetch(`ordenes-trabajo/${ordenId}/prioridad`, {

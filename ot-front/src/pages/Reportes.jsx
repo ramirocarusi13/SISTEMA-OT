@@ -5,7 +5,7 @@
 // componentes de AntD.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Badge, Button, DatePicker, Drawer, Empty, Select, Skeleton, Table, Tag, Tooltip } from 'antd';
-import { ReloadOutlined, BarChartOutlined, MessageOutlined } from '@ant-design/icons';
+import { ReloadOutlined, BarChartOutlined, MessageOutlined, FileTextOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { FaArrowLeft } from 'react-icons/fa';
 import moment from 'moment';
@@ -20,6 +20,7 @@ import {
     fetchUsuariosMantenimiento,
 } from '../Utils/otApi';
 import { getPrioridadInfo, getSlaEstadoUi, ordenarPorPrioridad } from '../Utils/prioridad';
+import DetalleOrdenDrawer from '../components/reportes/DetalleOrdenDrawer';
 
 const { RangePicker } = DatePicker;
 
@@ -411,6 +412,23 @@ const Reportes = () => {
         setMensajesError(null);
     };
 
+    // --- Drawer de detalle de una OT (categoría/prioridad/estado + descripciones
+    // de avance con sus adjuntos). La fila ya trae todos los datos de cabecera
+    // (fetchOrdenesTrabajo), así que acá solo se guarda la orden seleccionada;
+    // DetalleOrdenDrawer hace su propio fetch de las descripciones al abrirse.
+    const [detalleDrawerOpen, setDetalleDrawerOpen] = useState(false);
+    const [detalleOrden, setDetalleOrden] = useState(null);
+
+    const abrirDetalleOrden = (orden) => {
+        setDetalleOrden(orden);
+        setDetalleDrawerOpen(true);
+    };
+
+    const cerrarDetalleOrden = () => {
+        setDetalleDrawerOpen(false);
+        setDetalleOrden(null);
+    };
+
     // --- Performance MTTO: técnicos + tendencia ----------------------------
     // El reporte "por técnico" es pura performance de Mantenimiento: el backend
     // le da 403 a propósito a SyH (no tiene técnicos propios, solo ve OT de
@@ -522,6 +540,16 @@ const Reportes = () => {
                     </Tooltip>
                 );
             },
+        },
+        {
+            title: 'Detalle',
+            key: 'detalle',
+            className: 'text-center',
+            render: (_, orden) => (
+                <Button size="small" icon={<FileTextOutlined />} onClick={() => abrirDetalleOrden(orden)}>
+                    Detalle
+                </Button>
+            ),
         },
         {
             title: 'Mensajes',
@@ -831,6 +859,16 @@ const Reportes = () => {
                     </div>
                 </EstadoAsync>
             </Drawer>
+
+            <DetalleOrdenDrawer
+                open={detalleDrawerOpen}
+                orden={detalleOrden}
+                onClose={cerrarDetalleOrden}
+                labelsPorPrioridad={labelsPorPrioridad}
+                coloresPorPrioridad={coloresPorPrioridad}
+                categoriasLabels={resumen?.categorias || {}}
+                estadosLabel={ESTADOS_LABEL}
+            />
         </div>
     );
 };

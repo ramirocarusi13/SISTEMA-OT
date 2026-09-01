@@ -1417,6 +1417,22 @@
     margin-bottom: 16px;
   }
 
+  /* Variante angosta del grid de cabecera (Drawer de detalle de OT en Reportes,
+     ver components/reportes/DetalleOrdenDrawer.jsx): 2 columnas en vez de 5. */
+  .hhee-detalle-header--2col {
+    grid-template-columns: repeat(2, 1fr);
+    margin-bottom: 12px;
+  }
+
+  .hhee-detalle-descripcion {
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+
+  .hhee-seccion-titulo--espaciada {
+    margin-top: 24px;
+  }
+
   .hhee-detalle-label {
     margin: 0;
     color: var(--muted);
@@ -1583,6 +1599,47 @@
   .hhee-historial-list li:last-child {
     border-bottom: 0;
     padding-bottom: 0;
+  }
+
+  /* --- Adjuntos de descripciones de avance (Drawer de detalle de OT en
+     Reportes, ver components/reportes/DetalleOrdenDrawer.jsx) --- */
+  .hhee-adjunto-imagen {
+    margin-top: 8px;
+  }
+
+  .hhee-adjunto-error {
+    display: flex;
+    width: 96px;
+    height: 96px;
+    align-items: center;
+    justify-content: center;
+    margin-top: 8px;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    padding: 8px;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .hhee-adjunto-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    color: var(--info);
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  .hhee-adjunto-link:hover {
+    text-decoration: underline;
+  }
+
+  .hhee-adjunto-link img {
+    width: 18px;
+    height: 18px;
   }
 
   .notification-item.is-clickable {
