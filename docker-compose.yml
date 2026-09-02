@@ -12,7 +12,12 @@ services:
       - "8585:80"
     restart: unless-stopped
     volumes:
-      - sistema_ot_archivos:/var/www/html/public/storage/archivos
+      # ot_files es el volumen REAL con los adjuntos (ver deploy.bat de ordenes-sar).
+      # Antes decia "sistema_ot_archivos": cada vez que se alternaba entre compose
+      # y deploy.bat, las fotos nuevas quedaban en un volumen y la app montaba el
+      # otro (fotos "desaparecidas" en las OT, 02/09/2026). Se fusionaron ambos
+      # volumenes ese dia; desde entonces el unico valido es ot_files.
+      - ot_files:/var/www/html/public/storage/archivos
 
   frontend:
     container_name: ot-front
@@ -26,4 +31,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  sistema_ot_archivos:
+  ot_files:
+    external: true
