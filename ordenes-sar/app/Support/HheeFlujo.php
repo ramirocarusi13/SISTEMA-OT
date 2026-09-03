@@ -386,9 +386,9 @@ class HheeFlujo
 
     /**
      * Carga las horas reales por empleado (post-aprobación) y cierra la
-     * solicitud. $detallesReales: [['detalle_id' => .., 'hs_reales_50' => ..,
-     * 'hs_reales_100' => .., 'hs_reales_50n' => .., 'hs_reales_100n' => ..,
-     * 'fecha_realizacion' => ..], ...].
+     * solicitud. $detallesReales: [['detalle_id' => .., 'horas_reales' => ..,
+     * 'fecha_realizacion' => ..], ...] (un solo número de horas por empleado,
+     * ya no desglosado por tipo).
      *
      * Exige cobertura COMPLETA (un detalle_id por cada fila de
      * hhee_solicitud_detalles de la solicitud, ver validarHorasReales()): si
@@ -417,10 +417,7 @@ class HheeFlujo
                 $detalle = $actual->detalles()->find($detalleReal['detalle_id']);
 
                 $detalle->update([
-                    'hs_reales_50' => $detalleReal['hs_reales_50'] ?? 0,
-                    'hs_reales_100' => $detalleReal['hs_reales_100'] ?? 0,
-                    'hs_reales_50n' => $detalleReal['hs_reales_50n'] ?? 0,
-                    'hs_reales_100n' => $detalleReal['hs_reales_100n'] ?? 0,
+                    'horas_reales' => $detalleReal['horas_reales'] ?? 0,
                     'fecha_realizacion' => $detalleReal['fecha_realizacion'],
                 ]);
             }
@@ -443,69 +440,80 @@ class HheeFlujo
     }
 
     // =========================================================================
-    // Cálculo de horas / validación de desglose
+    // Cálculo de horas (un solo total por empleado, sin desglose por tipo)
     // =========================================================================
 
     /**
-     * Horas entre $desde y $hasta (formato "H:i"), sumando 24hs si
-     * $cruzaMedianoche. Si NO se marca cruce y $hasta es "menor" que $desde,
-     * el resultado da NEGATIVO a propósito (en vez de asumir que cruzó
-     * medianoche): así falla naturalmente la validación de desglose, en vez de
-     * adivinar la intención del usuario.
+     * Horas entre $desde y $hasta (formato "H:i"). Ya NO recibe un flag
+     * "cruza medianoche": se infiere solo del horario, según
+     * cruzaMedianoche($desde, $hasta) ($hasta <= $desde). Casos:
+     * - $hasta > $desde: turno normal dentro del mismo día.
+     * - $hasta < $desde: se asume que cruza medianoche (se le suma un día a
+     *   $hasta antes de restar). Ej: 22:00 -> 02:00 = 4hs.
+     * - $hasta === $desde: horario inválido (no se puede saber si es un
+     *   turno de 0hs o de 24hs) -> ValidationException (422).
+     *
+     * $index (si se pasa) arma la clave "detalles.$index" del error de
+     * horario inválido, para que el front pueda marcar la fila puntual del
+     * formulario (mismo patrón que tenía validarDesglose(), ya eliminado).
      */
-    public static function calcularHoras(string $desde, string $hasta, bool $cruzaMedianoche): float
+    public static function calcularHoras(string $desde, string $hasta, $index = null): float
     {
+        if ($desde === $hasta) {
+            $clave = $index === null ? 'detalles' : "detalles.$index";
+
+            throw ValidationException::withMessages([
+                $clave => 'Horario inválido: la hora de inicio y la hora de fin no pueden ser iguales.',
+            ]);
+        }
+
         $inicio = Carbon::createFromFormat('H:i', $desde);
         $fin = Carbon::createFromFormat('H:i', $hasta);
 
-        if ($cruzaMedianoche) {
+        if (self::cruzaMedianoche($desde, $hasta)) {
             $fin->addDay();
         }
 
-        $minutos = $inicio->diffInMinutes($fin, false);
+        $minutos = $inicio->diffInMinutes($fin);
 
         return round($minutos / 60, 2);
     }
 
     /**
-     * Valida UN detalle: que la suma del desglose teórico (50/100/50n/100n)
-     * coincida (tolerancia 0.01) con calcularHoras(hora_desde, hora_hasta,
-     * cruza_medianoche), y que no supere config('hhee.max_horas_por_empleado').
-     * Lanza ValidationException (422) si no cumple. $index (si se pasa) arma
-     * la clave "detalles.$index" del error, para que el front pueda marcar la
-     * fila puntual del formulario.
+     * True si el turno cruza medianoche ($hasta <= $desde). Comparación de
+     * STRINGS a propósito (sin Carbon): al venir validado como "H:i" de 24hs
+     * con cero-padding (date_format:H:i), el orden lexicográfico coincide
+     * exactamente con el orden horario, así que no hace falta parsear fechas
+     * para esto. Se persiste como dato informativo en
+     * hhee_solicitud_detalles.cruza_medianoche (ya no es un input del
+     * usuario, ver guardarDetalles()).
      */
-    public static function validarDesglose(array $detalle, $index = null): void
+    public static function cruzaMedianoche(string $desde, string $hasta): bool
     {
+        return $hasta <= $desde;
+    }
+
+    /**
+     * Horas TEÓRICAS de un detalle: calcularHoras(hora_desde, hora_hasta) +
+     * tope config('hhee.max_horas_por_empleado') (422 si lo supera).
+     * Reemplaza a validarDesglose() (eliminado): ya no hay desglose por tipo
+     * de hora que el cliente pueda mandar mal, el backend calcula el ÚNICO
+     * número de horas_teoricas a partir del horario.
+     */
+    public static function calcularHorasTeoricas(array $detalle, $index = null): float
+    {
+        $horas = self::calcularHoras($detalle['hora_desde'], $detalle['hora_hasta'], $index);
+
         $clave = $index === null ? 'detalles' : "detalles.$index";
-
-        $suma = round(
-            (float) ($detalle['hs_teoricas_50'] ?? 0)
-            + (float) ($detalle['hs_teoricas_100'] ?? 0)
-            + (float) ($detalle['hs_teoricas_50n'] ?? 0)
-            + (float) ($detalle['hs_teoricas_100n'] ?? 0),
-            2
-        );
-
-        $calculadas = self::calcularHoras(
-            $detalle['hora_desde'],
-            $detalle['hora_hasta'],
-            (bool) ($detalle['cruza_medianoche'] ?? false)
-        );
-
-        if (abs($suma - $calculadas) > 0.01) {
-            throw ValidationException::withMessages([
-                $clave => "El desglose de horas de \"{$detalle['nombre']}\" ({$suma} hs) no coincide con las horas del turno ({$calculadas} hs).",
-            ]);
-        }
-
         $maxHoras = (float) config('hhee.max_horas_por_empleado', 12);
 
-        if ($suma > $maxHoras) {
+        if ($horas > $maxHoras) {
             throw ValidationException::withMessages([
                 $clave => "\"{$detalle['nombre']}\" supera el máximo de {$maxHoras} horas permitidas por empleado.",
             ]);
         }
+
+        return $horas;
     }
 
     /**
@@ -516,9 +524,8 @@ class HheeFlujo
      *   en el payload (si falta alguno, quedaría en 0 para siempre porque la
      *   solicitud pasa a 'cerrada', que es terminal).
      * - Ningún detalle_id ajeno (que no pertenezca a esta solicitud).
-     * - Por cada detalle, la suma de hs_reales_50/100/50n/100n no puede
-     *   superar config('hhee.max_horas_por_empleado') (antes de este fix se
-     *   podía cargar, por ejemplo, 24+24+24+24=96hs reales sin ningún límite).
+     * - Por cada detalle, horas_reales (un solo número, ya no desglosado por
+     *   tipo) no puede superar config('hhee.max_horas_por_empleado').
      * Lanza ValidationException (422) si no cumple.
      */
     public static function validarHorasReales(SolicitudHhee $solicitud, array $detallesReales): void
@@ -543,15 +550,9 @@ class HheeFlujo
         $maxHoras = (float) config('hhee.max_horas_por_empleado', 12);
 
         foreach ($detallesReales as $i => $detalleReal) {
-            $suma = round(
-                (float) ($detalleReal['hs_reales_50'] ?? 0)
-                + (float) ($detalleReal['hs_reales_100'] ?? 0)
-                + (float) ($detalleReal['hs_reales_50n'] ?? 0)
-                + (float) ($detalleReal['hs_reales_100n'] ?? 0),
-                2
-            );
+            $horas = (float) ($detalleReal['horas_reales'] ?? 0);
 
-            if ($suma > $maxHoras) {
+            if ($horas > $maxHoras) {
                 throw ValidationException::withMessages([
                     "detalles.$i" => "El detalle {$detalleReal['detalle_id']} supera el máximo de {$maxHoras} horas reales permitidas por empleado.",
                 ]);
@@ -582,16 +583,8 @@ class HheeFlujo
     {
         $detalles = $solicitud->detalles()->get();
 
-        $solicitud->total_horas_teoricas = round($detalles->sum(function ($detalle) {
-            return (float) $detalle->hs_teoricas_50 + (float) $detalle->hs_teoricas_100
-                + (float) $detalle->hs_teoricas_50n + (float) $detalle->hs_teoricas_100n;
-        }), 2);
-
-        $solicitud->total_horas_reales = round($detalles->sum(function ($detalle) {
-            return (float) $detalle->hs_reales_50 + (float) $detalle->hs_reales_100
-                + (float) $detalle->hs_reales_50n + (float) $detalle->hs_reales_100n;
-        }), 2);
-
+        $solicitud->total_horas_teoricas = round($detalles->sum(fn ($detalle) => (float) $detalle->horas_teoricas), 2);
+        $solicitud->total_horas_reales = round($detalles->sum(fn ($detalle) => (float) $detalle->horas_reales), 2);
         $solicitud->total_empleados = $detalles->count();
         $solicitud->save();
     }
@@ -601,18 +594,19 @@ class HheeFlujo
     // =========================================================================
 
     /**
-     * Valida el desglose de CADA detalle (validarDesglose()) y que no haya
-     * dos filas para el mismo empleado (mismo nombre+legajo, normalizado) en
-     * la misma solicitud.
+     * Valida el horario+tope de CADA detalle (calcularHorasTeoricas()) y que
+     * no haya dos filas para el mismo empleado (mismo nombre normalizado) en
+     * la misma solicitud. Ya NO compara por legajo (se sacó del form): dos
+     * empleados sin legajo con el mismo nombre se consideran duplicados.
      */
     private static function validarDetalles(array $detalles): void
     {
         $vistos = [];
 
         foreach ($detalles as $i => $detalle) {
-            self::validarDesglose($detalle, $i);
+            self::calcularHorasTeoricas($detalle, $i);
 
-            $clave = strtolower(trim($detalle['nombre'])) . '|' . strtolower(trim($detalle['legajo'] ?? ''));
+            $clave = strtolower(trim($detalle['nombre']));
 
             if (isset($vistos[$clave])) {
                 throw ValidationException::withMessages([
@@ -628,7 +622,6 @@ class HheeFlujo
     {
         foreach ($detalles as $i => $detalle) {
             $solicitud->detalles()->create([
-                'legajo' => $detalle['legajo'] ?? null,
                 'nombre' => $detalle['nombre'],
                 'user_id' => $detalle['user_id'] ?? null,
                 'motivo' => $detalle['motivo'],
@@ -636,11 +629,11 @@ class HheeFlujo
                 'localidad' => $detalle['localidad'] ?? null,
                 'hora_desde' => $detalle['hora_desde'],
                 'hora_hasta' => $detalle['hora_hasta'],
-                'cruza_medianoche' => (bool) ($detalle['cruza_medianoche'] ?? false),
-                'hs_teoricas_50' => $detalle['hs_teoricas_50'] ?? 0,
-                'hs_teoricas_100' => $detalle['hs_teoricas_100'] ?? 0,
-                'hs_teoricas_50n' => $detalle['hs_teoricas_50n'] ?? 0,
-                'hs_teoricas_100n' => $detalle['hs_teoricas_100n'] ?? 0,
+                // cruza_medianoche y horas_teoricas son 100% derivados del
+                // horario, nunca input del usuario (ver calcularHoras()/
+                // cruzaMedianoche()/calcularHorasTeoricas()).
+                'cruza_medianoche' => self::cruzaMedianoche($detalle['hora_desde'], $detalle['hora_hasta']),
+                'horas_teoricas' => self::calcularHorasTeoricas($detalle, $i),
                 'orden' => $i,
             ]);
         }

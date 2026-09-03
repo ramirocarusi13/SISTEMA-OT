@@ -32,26 +32,25 @@ export function getEstadoHheeInfo(catalogoEstados = [], estado) {
 /**
  * Horas entre dos horarios "HH:mm" (preview en vivo mientras se carga el
  * formulario). El número que vale de verdad siempre lo recalcula el backend
- * al guardar; esto es solo para guiar al usuario mientras completa el
- * desglose teórico.
+ * al guardar; esto es solo para guiar al usuario.
  *
- * Espeja EXACTAMENTE a App\Support\HheeFlujo::calcularHoras(): solo suma un
- * día si $cruzaMedianoche viene marcado. Si NO se marca el cruce y `hasta` es
- * "menor o igual" que `desde`, NO se asume que cruzó medianoche (el backend
- * ahí da un resultado negativo/cero a propósito y lo rechaza en la validación
- * del desglose, ver HheeFlujo::validarDesglose()): acá se devuelve null para
- * que el formulario marque la fila como inválida con un mensaje claro, en vez
- * de mostrar un total "que valida" y que el servidor tire un 422 confuso.
+ * Ya no hay checkbox "cruza medianoche": espeja EXACTAMENTE a
+ * App\Support\HheeFlujo::calcularHoras() en su versión simplificada — si
+ * `hasta` es MENOR O IGUAL que `desde` se asume automáticamente que el turno
+ * cruza la medianoche (se le suma un día); si `hasta` es exactamente igual a
+ * `desde` el rango es inválido (0 hs no tiene sentido), devuelve null.
  */
-export function calcularHoras(horaDesde, horaHasta, cruzaMedianoche = false) {
+export function calcularHoras(horaDesde, horaHasta) {
     if (!horaDesde || !horaHasta) return null;
 
     const desde = moment(horaDesde, 'HH:mm', true);
     const hasta = moment(horaHasta, 'HH:mm', true);
     if (!desde.isValid() || !hasta.isValid()) return null;
 
+    if (hasta.isSame(desde)) return null;
+
     const hastaAjustada = hasta.clone();
-    if (cruzaMedianoche) {
+    if (hastaAjustada.isSameOrBefore(desde)) {
         hastaAjustada.add(1, 'day');
     }
 
@@ -61,10 +60,20 @@ export function calcularHoras(horaDesde, horaHasta, cruzaMedianoche = false) {
     return Math.round((minutos / 60) * 100) / 100;
 }
 
-/** Suma del desglose de 4 tipos de hora (teóricas o reales) de una fila. */
-export function sumarDesglose(fila = {}, sufijo = 'teoricas') {
-    const campos = [`hs_${sufijo}_50`, `hs_${sufijo}_100`, `hs_${sufijo}_50n`, `hs_${sufijo}_100n`];
-    return campos.reduce((acc, campo) => acc + (Number(fila[campo]) || 0), 0);
+/**
+ * True si el rango horario "HH:mm" cruza la medianoche (hasta <= desde),
+ * para mostrar la aclaración "(cruza medianoche)" al lado de las horas
+ * calculadas. Mismo criterio que calcularHoras(), sin el caso hasta==desde
+ * (ese ya es inválido, no hace falta aclarar nada).
+ */
+export function cruzaMedianocheHhee(horaDesde, horaHasta) {
+    if (!horaDesde || !horaHasta) return false;
+
+    const desde = moment(horaDesde, 'HH:mm', true);
+    const hasta = moment(horaHasta, 'HH:mm', true);
+    if (!desde.isValid() || !hasta.isValid()) return false;
+
+    return hasta.isSameOrBefore(desde) && !hasta.isSame(desde);
 }
 
 /** Formatea un número de horas con hasta 2 decimales, sin ceros de más (2 -> "2", 2.5 -> "2.5"). */

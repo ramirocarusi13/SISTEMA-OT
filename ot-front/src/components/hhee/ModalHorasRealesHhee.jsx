@@ -1,6 +1,7 @@
 // Carga de horas reales de una solicitud APROBADA (§FO-008-RRH): por cada
-// empleado se precargan las horas teóricas como default editable, más la
-// fecha en que se realizaron las horas (default = fecha_hhee de la cabecera).
+// empleado se precarga la hora teórica como default editable (un solo
+// número), más la fecha en que se realizaron las horas (default =
+// fecha_hhee de la cabecera).
 import React, { useEffect, useState } from 'react';
 import { Modal, Table, InputNumber, DatePicker, message } from 'antd';
 import moment from 'moment';
@@ -18,11 +19,7 @@ const ModalHorasRealesHhee = ({ open, solicitud, onClose, onSuccess }) => {
                 (solicitud.detalles || []).map((detalle) => ({
                     detalle_id: detalle.id,
                     nombre: detalle.nombre,
-                    legajo: detalle.legajo,
-                    hs_reales_50: Number(detalle.hs_reales_50) || Number(detalle.hs_teoricas_50) || 0,
-                    hs_reales_100: Number(detalle.hs_reales_100) || Number(detalle.hs_teoricas_100) || 0,
-                    hs_reales_50n: Number(detalle.hs_reales_50n) || Number(detalle.hs_teoricas_50n) || 0,
-                    hs_reales_100n: Number(detalle.hs_reales_100n) || Number(detalle.hs_teoricas_100n) || 0,
+                    horas_reales: Number(detalle.horas_reales) || Number(detalle.horas_teoricas) || 0,
                     fecha_realizacion: detalle.fecha_realizacion ? moment(detalle.fecha_realizacion) : fechaDefault,
                 }))
             );
@@ -33,13 +30,7 @@ const ModalHorasRealesHhee = ({ open, solicitud, onClose, onSuccess }) => {
         setFilas((prev) => prev.map((fila) => (fila.detalle_id === detalleId ? { ...fila, [campo]: valor } : fila)));
     };
 
-    const totalFila = (fila) =>
-        (Number(fila.hs_reales_50) || 0) +
-        (Number(fila.hs_reales_100) || 0) +
-        (Number(fila.hs_reales_50n) || 0) +
-        (Number(fila.hs_reales_100n) || 0);
-
-    const totalGeneral = filas.reduce((acc, fila) => acc + totalFila(fila), 0);
+    const totalGeneral = filas.reduce((acc, fila) => acc + (Number(fila.horas_reales) || 0), 0);
 
     const handleGuardar = async () => {
         const faltaFecha = filas.some((fila) => !fila.fecha_realizacion);
@@ -52,10 +43,7 @@ const ModalHorasRealesHhee = ({ open, solicitud, onClose, onSuccess }) => {
         const payload = {
             detalles: filas.map((fila) => ({
                 detalle_id: fila.detalle_id,
-                hs_reales_50: Number(fila.hs_reales_50) || 0,
-                hs_reales_100: Number(fila.hs_reales_100) || 0,
-                hs_reales_50n: Number(fila.hs_reales_50n) || 0,
-                hs_reales_100n: Number(fila.hs_reales_100n) || 0,
+                horas_reales: Number(fila.horas_reales) || 0,
                 fecha_realizacion: fila.fecha_realizacion.format('YYYY-MM-DD'),
             })),
         };
@@ -72,34 +60,22 @@ const ModalHorasRealesHhee = ({ open, solicitud, onClose, onSuccess }) => {
         }
     };
 
-    const columnaHoras = (campo, titulo) => ({
-        title: titulo,
-        key: campo,
-        width: 110,
-        render: (_, fila) => (
-            <InputNumber
-                min={0}
-                max={24}
-                step={0.5}
-                style={{ width: '100%' }}
-                value={fila[campo]}
-                onChange={(valor) => actualizarFila(fila.detalle_id, campo, valor)}
-            />
-        ),
-    });
-
     const columns = [
-        { title: 'Empleado', dataIndex: 'nombre', key: 'nombre', fixed: 'left', width: 180 },
-        { title: 'Legajo', dataIndex: 'legajo', key: 'legajo', width: 90, render: (v) => v || '—' },
-        columnaHoras('hs_reales_50', '50%'),
-        columnaHoras('hs_reales_100', '100%'),
-        columnaHoras('hs_reales_50n', '50% noct.'),
-        columnaHoras('hs_reales_100n', '100% noct.'),
+        { title: 'Empleado', dataIndex: 'nombre', key: 'nombre', fixed: 'left', width: 200 },
         {
-            title: 'Total',
-            key: 'total',
-            width: 90,
-            render: (_, fila) => <strong>{formatearHoras(totalFila(fila))} h</strong>,
+            title: 'Horas reales',
+            key: 'horas_reales',
+            width: 140,
+            render: (_, fila) => (
+                <InputNumber
+                    min={0}
+                    max={24}
+                    step={0.5}
+                    style={{ width: '100%' }}
+                    value={fila.horas_reales}
+                    onChange={(valor) => actualizarFila(fila.detalle_id, 'horas_reales', valor)}
+                />
+            ),
         },
         {
             title: 'Fecha realización',
@@ -125,7 +101,7 @@ const ModalHorasRealesHhee = ({ open, solicitud, onClose, onSuccess }) => {
             okText="Guardar horas reales"
             cancelText="Cancelar"
             confirmLoading={enviando}
-            width={900}
+            width={640}
             destroyOnClose
         >
             <Table

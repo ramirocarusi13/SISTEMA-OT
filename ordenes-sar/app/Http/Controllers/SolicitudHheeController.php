@@ -44,6 +44,11 @@ class SolicitudHheeController extends Controller
         return response()->json([
             'estados' => HheeEstados::catalogo(),
             'roles_labels' => config('hhee.roles_labels'),
+            // 'tipos_hora': quedó sin uso en el front tras sacar el desglose
+            // por tipo de hora de la carga (ver App\Support\HheeFlujo, ahora
+            // un solo total de horas por empleado). Se deja acá por si algún
+            // reporte/pantalla vieja lo sigue leyendo; si se confirma que
+            // nada lo consume, se puede sacar.
             'tipos_hora' => config('hhee.tipos_hora'),
             'sectores' => config('hhee.sectores'),
             'mis_niveles' => HheeAprobadores::nivelesGenerales($user),
@@ -340,10 +345,10 @@ class SolicitudHheeController extends Controller
         $validado = $request->validate([
             'detalles' => 'required|array|min:1',
             'detalles.*.detalle_id' => 'required|integer|exists:hhee_solicitud_detalles,id',
-            'detalles.*.hs_reales_50' => 'nullable|numeric|min:0|max:24',
-            'detalles.*.hs_reales_100' => 'nullable|numeric|min:0|max:24',
-            'detalles.*.hs_reales_50n' => 'nullable|numeric|min:0|max:24',
-            'detalles.*.hs_reales_100n' => 'nullable|numeric|min:0|max:24',
+            // Un solo número (ya no desglosado por tipo de hora): el tope de
+            // config('hhee.max_horas_por_empleado') se valida aparte, en
+            // App\Support\HheeFlujo::validarHorasReales().
+            'detalles.*.horas_reales' => 'nullable|numeric|min:0|max:24',
             'detalles.*.fecha_realizacion' => 'required|date',
         ]);
 
@@ -391,7 +396,6 @@ class SolicitudHheeController extends Controller
             'enviar' => 'boolean',
             'detalles' => 'required|array|min:1|max:100',
             'detalles.*.nombre' => 'required|string|max:150',
-            'detalles.*.legajo' => 'nullable|string|max:20',
             // Vínculo opcional con un usuario del sistema (ver
             // hhee_solicitud_detalles.user_id): el front lo usa para un
             // buscador de empleados, pero el campo 'nombre' libre sigue
@@ -402,11 +406,14 @@ class SolicitudHheeController extends Controller
             'detalles.*.localidad' => 'nullable|string|max:150|required_if:detalles.*.necesita_transporte,true',
             'detalles.*.hora_desde' => 'required|date_format:H:i',
             'detalles.*.hora_hasta' => 'required|date_format:H:i',
-            'detalles.*.cruza_medianoche' => 'boolean',
-            'detalles.*.hs_teoricas_50' => 'numeric|min:0|max:24',
-            'detalles.*.hs_teoricas_100' => 'numeric|min:0|max:24',
-            'detalles.*.hs_teoricas_50n' => 'numeric|min:0|max:24',
-            'detalles.*.hs_teoricas_100n' => 'numeric|min:0|max:24',
+            // legajo, cruza_medianoche y el desglose hs_teoricas_50/100/50n/
+            // 100n YA NO se piden (simplificación de la carga): si el front
+            // los manda igual, no hay regla para ellos y Laravel los
+            // descarta sin romper con 422 por "campo extra". El total de
+            // horas teóricas lo calcula SIEMPRE el backend a partir de
+            // hora_desde/hora_hasta (ver App\Support\HheeFlujo::
+            // calcularHorasTeoricas()), cruza_medianoche se infiere solo del
+            // horario (ver HheeFlujo::cruzaMedianoche()).
         ]);
     }
 

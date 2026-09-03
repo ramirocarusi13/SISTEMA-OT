@@ -11,7 +11,7 @@ import {
     aprobarSolicitudHhee,
     anularSolicitudHhee,
 } from '../../Utils/hheeApi';
-import { getEstadoHheeInfo, formatearHoras, sumarDesglose, horaCorta, iniciales, getSectoresHhee, sectorOFallback } from '../../Utils/hhee';
+import { getEstadoHheeInfo, formatearHoras, cruzaMedianocheHhee, horaCorta, iniciales, getSectoresHhee, sectorOFallback } from '../../Utils/hhee';
 import ModalCrearSolicitudHhee from './ModalCrearSolicitudHhee';
 import ModalRechazarSolicitudHhee from './ModalRechazarSolicitudHhee';
 import ModalHorasRealesHhee from './ModalHorasRealesHhee';
@@ -125,7 +125,6 @@ const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onCh
 
     const columnasDetalle = [
         { title: 'Empleado', dataIndex: 'nombre', key: 'nombre' },
-        { title: 'Legajo', dataIndex: 'legajo', key: 'legajo', render: (v) => v || '—' },
         { title: 'Motivo', dataIndex: 'motivo', key: 'motivo' },
         {
             title: 'Transporte',
@@ -135,23 +134,29 @@ const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onCh
         {
             title: 'Horario previsto',
             key: 'horario',
-            render: (_, fila) => (
-                <span>
-                    {horaCorta(fila.hora_desde)} a {horaCorta(fila.hora_hasta)}
-                    {fila.cruza_medianoche && <Tag className="hhee-tag-inline" color="blue">Cruza medianoche</Tag>}
-                </span>
-            ),
+            render: (_, fila) => {
+                const desde = horaCorta(fila.hora_desde);
+                const hasta = horaCorta(fila.hora_hasta);
+                return (
+                    <span>
+                        {desde} a {hasta}
+                        {desde && hasta && cruzaMedianocheHhee(desde, hasta) && (
+                            <Tag className="hhee-tag-inline" color="blue">Cruza medianoche</Tag>
+                        )}
+                    </span>
+                );
+            },
         },
         {
             title: 'Hs. teóricas',
             key: 'teoricas',
-            render: (_, fila) => `${formatearHoras(sumarDesglose(fila, 'teoricas'))} h`,
+            render: (_, fila) => `${formatearHoras(fila.horas_teoricas)} h`,
         },
         ...(mostrarReales ? [{
             title: 'Hs. reales',
             key: 'reales',
             render: (_, fila) => (fila.fecha_realizacion
-                ? `${formatearHoras(sumarDesglose(fila, 'reales'))} h (${moment(fila.fecha_realizacion).format('DD/MM/YYYY')})`
+                ? `${formatearHoras(fila.horas_reales)} h (${moment(fila.fecha_realizacion).format('DD/MM/YYYY')})`
                 : 'Sin cargar'),
         }] : []),
     ];

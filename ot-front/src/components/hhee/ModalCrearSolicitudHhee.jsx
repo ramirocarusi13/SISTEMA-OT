@@ -2,12 +2,19 @@
 // cabecera + tabla editable de empleados. Reusable para crear (solicitud=null)
 // o editar un borrador propio (solicitud=objeto ya cargado, ver flags.puede_editar
 // en components/hhee/ModalDetalleSolicitudHhee.jsx).
+//
+// Carga simplificada: por empleado solo se pide nombre, motivo, transporte y
+// el horario previsto (desde/hasta). Las horas las calcula el backend a
+// partir del horario (si "hasta" <= "desde" asume que el turno cruza la
+// medianoche automáticamente; "hasta" == "desde" es inválido) — acá se
+// espeja ese cálculo en vivo (Utils/hhee.js::calcularHoras) solo para
+// mostrarle al usuario cuánto va a quedar, nunca se manda al servidor.
 import React, { useEffect, useState } from 'react';
-import { Modal, DatePicker, Select, Input, Checkbox, Switch, TimePicker, InputNumber, Button, AutoComplete, Tooltip, message } from 'antd';
+import { Modal, DatePicker, Select, Input, Switch, TimePicker, Button, AutoComplete, Tooltip, message } from 'antd';
 import { PlusOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons';
 import moment from 'moment';
 import { crearSolicitudHhee, actualizarSolicitudHhee } from '../../Utils/hheeApi';
-import { calcularHoras, sumarDesglose, formatearHoras, horaCorta, SECTORES_HHEE_FALLBACK } from '../../Utils/hhee';
+import { calcularHoras, cruzaMedianocheHhee, formatearHoras, horaCorta, SECTORES_HHEE_FALLBACK } from '../../Utils/hhee';
 
 const { TextArea } = Input;
 
@@ -17,17 +24,11 @@ const nuevaFilaVacia = () => ({
     id: null,
     nombre: '',
     user_id: null,
-    legajo: '',
     motivo: '',
     necesita_transporte: false,
     localidad: '',
     hora_desde: null,
     hora_hasta: null,
-    cruza_medianoche: false,
-    hs_teoricas_50: 0,
-    hs_teoricas_100: 0,
-    hs_teoricas_50n: 0,
-    hs_teoricas_100n: 0,
 });
 
 const filaDesdeDetalle = (detalle) => ({
@@ -35,17 +36,11 @@ const filaDesdeDetalle = (detalle) => ({
     id: detalle.id,
     nombre: detalle.nombre || '',
     user_id: detalle.user_id || null,
-    legajo: detalle.legajo || '',
     motivo: detalle.motivo || '',
     necesita_transporte: !!detalle.necesita_transporte,
     localidad: detalle.localidad || '',
     hora_desde: detalle.hora_desde ? moment(horaCorta(detalle.hora_desde), 'HH:mm') : null,
     hora_hasta: detalle.hora_hasta ? moment(horaCorta(detalle.hora_hasta), 'HH:mm') : null,
-    cruza_medianoche: !!detalle.cruza_medianoche,
-    hs_teoricas_50: Number(detalle.hs_teoricas_50) || 0,
-    hs_teoricas_100: Number(detalle.hs_teoricas_100) || 0,
-    hs_teoricas_50n: Number(detalle.hs_teoricas_50n) || 0,
-    hs_teoricas_100n: Number(detalle.hs_teoricas_100n) || 0,
 });
 
 const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES_HHEE_FALLBACK, usuarios = [], maxHorasPorEmpleado = 12, onSuccess }) => {
@@ -102,10 +97,9 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
     const agregarFila = () => setFilas((prev) => [...prev, nuevaFilaVacia()]);
     const quitarFila = (key) => setFilas((prev) => (prev.length > 1 ? prev.filter((fila) => fila.key !== key) : prev));
 
-    const horasDelTurno = (fila) => calcularHoras(
+    const horasDeFila = (fila) => calcularHoras(
         fila.hora_desde ? fila.hora_desde.format('HH:mm') : null,
-        fila.hora_hasta ? fila.hora_hasta.format('HH:mm') : null,
-        fila.cruza_medianoche
+        fila.hora_hasta ? fila.hora_hasta.format('HH:mm') : null
     );
 
     const validar = () => {
@@ -121,16 +115,9 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
             if (fila.necesita_transporte && !fila.localidad.trim()) return `Fila ${numero}: falta la localidad para el transporte.`;
             if (!fila.hora_desde || !fila.hora_hasta) return `Fila ${numero}: falta el horario previsto.`;
 
-            const horasTurno = horasDelTurno(fila);
-            if (horasTurno === null) return `Fila ${numero}: el horario cruza la medianoche: tildá la casilla "Cruza medianoche" o corregí las horas.`;
-
-            const desglose = sumarDesglose(fila);
-            if (Math.abs(desglose - horasTurno) > 0.01) {
-                return `Fila ${numero}: el desglose (${formatearHoras(desglose)} h) no coincide con las horas del turno (${formatearHoras(horasTurno)} h).`;
-            }
-            if (desglose > maxHorasPorEmpleado) {
-                return `Fila ${numero}: supera el tope de ${maxHorasPorEmpleado} h por empleado.`;
-            }
+            const horas = horasDeFila(fila);
+            if (horas === null) return `Fila ${numero}: la hora de inicio y la de fin no pueden ser iguales.`;
+            if (horas > maxHorasPorEmpleado) return `Fila ${numero}: supera el tope de ${maxHorasPorEmpleado} h por empleado.`;
         }
 
         return null;
@@ -145,17 +132,11 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
         detalles: filas.map((fila) => ({
             nombre: fila.nombre.trim(),
             user_id: fila.user_id || null,
-            legajo: fila.legajo?.trim() || null,
             motivo: fila.motivo.trim(),
             necesita_transporte: !!fila.necesita_transporte,
             localidad: fila.necesita_transporte ? fila.localidad.trim() : null,
             hora_desde: fila.hora_desde.format('HH:mm'),
             hora_hasta: fila.hora_hasta.format('HH:mm'),
-            cruza_medianoche: !!fila.cruza_medianoche,
-            hs_teoricas_50: Number(fila.hs_teoricas_50) || 0,
-            hs_teoricas_100: Number(fila.hs_teoricas_100) || 0,
-            hs_teoricas_50n: Number(fila.hs_teoricas_50n) || 0,
-            hs_teoricas_100n: Number(fila.hs_teoricas_100n) || 0,
         })),
     });
 
@@ -193,7 +174,7 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
         });
     };
 
-    const totalGeneral = filas.reduce((acc, fila) => acc + sumarDesglose(fila), 0);
+    const totalGeneral = filas.reduce((acc, fila) => acc + (horasDeFila(fila) || 0), 0);
 
     return (
         <Modal
@@ -264,30 +245,26 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
                 <table className="hhee-tabla-editable">
                     <thead>
                         <tr>
-                            <th style={{ minWidth: 160 }}>Nombre</th>
-                            <th style={{ minWidth: 90 }}>Legajo</th>
-                            <th style={{ minWidth: 160 }}>Motivo</th>
+                            <th style={{ minWidth: 200 }}>Nombre</th>
+                            <th style={{ minWidth: 200 }}>Motivo</th>
                             <th style={{ minWidth: 90 }}>Transporte</th>
-                            <th style={{ minWidth: 140 }}>Localidad</th>
+                            <th style={{ minWidth: 160 }}>Localidad</th>
                             <th style={{ minWidth: 100 }}>Desde</th>
                             <th style={{ minWidth: 100 }}>Hasta</th>
-                            <th style={{ minWidth: 90 }}>Cruza medianoche</th>
-                            <th style={{ minWidth: 80 }}>50%</th>
-                            <th style={{ minWidth: 80 }}>100%</th>
-                            <th style={{ minWidth: 80 }}>50% noct.</th>
-                            <th style={{ minWidth: 80 }}>100% noct.</th>
-                            <th style={{ minWidth: 110 }}>Total / turno</th>
+                            <th style={{ minWidth: 150 }}>Horas</th>
                             <th style={{ minWidth: 50 }} />
                         </tr>
                     </thead>
                     <tbody>
                         {filas.map((fila) => {
-                            const horasTurno = horasDelTurno(fila);
-                            const desglose = sumarDesglose(fila);
-                            // Rango inválido: hay horario cargado pero calcularHoras() dio null
-                            // (hasta <= desde sin "cruza medianoche" tildado, espejo del backend).
-                            const rangoInvalido = !!(fila.hora_desde && fila.hora_hasta) && horasTurno === null;
-                            const noCierra = !rangoInvalido && horasTurno !== null && Math.abs(desglose - horasTurno) > 0.01;
+                            const horas = horasDeFila(fila);
+                            const rangoCargado = !!(fila.hora_desde && fila.hora_hasta);
+                            const horasInvalidas = rangoCargado && horas === null;
+                            const superaTope = horas !== null && horas > maxHorasPorEmpleado;
+                            const cruzaMedianoche = rangoCargado && !horasInvalidas && cruzaMedianocheHhee(
+                                fila.hora_desde.format('HH:mm'),
+                                fila.hora_hasta.format('HH:mm')
+                            );
 
                             return (
                                 <tr key={fila.key}>
@@ -319,13 +296,6 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
                                                 ) : null}
                                             />
                                         </AutoComplete>
-                                    </td>
-                                    <td>
-                                        <Input
-                                            value={fila.legajo}
-                                            onChange={(e) => actualizarFila(fila.key, 'legajo', e.target.value)}
-                                            maxLength={20}
-                                        />
                                     </td>
                                     <td>
                                         <Input
@@ -368,61 +338,16 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
                                             style={{ width: '100%' }}
                                         />
                                     </td>
-                                    <td style={{ textAlign: 'center' }}>
-                                        <Checkbox
-                                            checked={fila.cruza_medianoche}
-                                            onChange={(e) => actualizarFila(fila.key, 'cruza_medianoche', e.target.checked)}
-                                        />
-                                    </td>
-                                    <td>
-                                        <InputNumber
-                                            min={0}
-                                            max={24}
-                                            step={0.5}
-                                            value={fila.hs_teoricas_50}
-                                            onChange={(v) => actualizarFila(fila.key, 'hs_teoricas_50', v)}
-                                            style={{ width: '100%' }}
-                                        />
-                                    </td>
-                                    <td>
-                                        <InputNumber
-                                            min={0}
-                                            max={24}
-                                            step={0.5}
-                                            value={fila.hs_teoricas_100}
-                                            onChange={(v) => actualizarFila(fila.key, 'hs_teoricas_100', v)}
-                                            style={{ width: '100%' }}
-                                        />
-                                    </td>
-                                    <td>
-                                        <InputNumber
-                                            min={0}
-                                            max={24}
-                                            step={0.5}
-                                            value={fila.hs_teoricas_50n}
-                                            onChange={(v) => actualizarFila(fila.key, 'hs_teoricas_50n', v)}
-                                            style={{ width: '100%' }}
-                                        />
-                                    </td>
-                                    <td>
-                                        <InputNumber
-                                            min={0}
-                                            max={24}
-                                            step={0.5}
-                                            value={fila.hs_teoricas_100n}
-                                            onChange={(v) => actualizarFila(fila.key, 'hs_teoricas_100n', v)}
-                                            style={{ width: '100%' }}
-                                        />
-                                    </td>
-                                    <td className={(noCierra || rangoInvalido) ? 'hhee-total-mismatch' : 'hhee-total-ok'}>
-                                        {rangoInvalido ? (
-                                            'Cruza medianoche: tildá la casilla'
-                                        ) : (
+                                    <td className={(horasInvalidas || superaTope) ? 'hhee-total-mismatch' : 'hhee-total-ok'}>
+                                        {horasInvalidas ? (
+                                            'El desde y el hasta no pueden ser iguales'
+                                        ) : horas !== null ? (
                                             <>
-                                                {formatearHoras(desglose)} h
-                                                {horasTurno !== null && ` / ${formatearHoras(horasTurno)} h`}
+                                                {formatearHoras(horas)} h
+                                                {cruzaMedianoche && ' (cruza medianoche)'}
+                                                {superaTope && ' — supera el tope'}
                                             </>
-                                        )}
+                                        ) : '—'}
                                     </td>
                                     <td>
                                         <Button
@@ -446,7 +371,7 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
 
             <div className="hhee-total-general">
                 <span>{filas.length} empleado{filas.length === 1 ? '' : 's'}</span>
-                <strong>Total teórico: {formatearHoras(totalGeneral)} h</strong>
+                <strong>Total: {formatearHoras(totalGeneral)} h</strong>
             </div>
             </div>
 

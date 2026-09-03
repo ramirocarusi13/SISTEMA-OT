@@ -75,23 +75,18 @@ class HheeCircuitoTest extends TestCase
     }
 
     /**
-     * Un detalle de empleado válido (desglose que cierra con el turno 08:00-16:00
-     * = 8hs, todas al 50%), con overrides puntuales.
+     * Un detalle de empleado válido (turno 08:00-16:00 = 8hs, el backend
+     * calcula el total solo), con overrides puntuales. Ya no lleva legajo,
+     * cruza_medianoche ni desglose por tipo de hora (ver App\Support\HheeFlujo).
      */
     private function detalle(array $overrides = []): array
     {
         return array_merge([
             'nombre' => 'Juan Pérez',
-            'legajo' => '123',
             'motivo' => 'Refuerzo de turno',
             'necesita_transporte' => false,
             'hora_desde' => '08:00',
             'hora_hasta' => '16:00',
-            'cruza_medianoche' => false,
-            'hs_teoricas_50' => 8,
-            'hs_teoricas_100' => 0,
-            'hs_teoricas_50n' => 0,
-            'hs_teoricas_100n' => 0,
         ], $overrides);
     }
 
@@ -139,7 +134,7 @@ class HheeCircuitoTest extends TestCase
         // 2) Editar (sigue en borrador, agrego un segundo empleado)
         $editar = $this->putJson("/api/hhee/solicitudes/{$id}", $this->payload($depto, [
             $this->detalle(['nombre' => 'Juan Pérez']),
-            $this->detalle(['nombre' => 'María López', 'legajo' => '456']),
+            $this->detalle(['nombre' => 'María López']),
         ]));
         $editar->assertStatus(200);
         $editar->assertJsonCount(2, 'detalles');
@@ -203,7 +198,7 @@ class HheeCircuitoTest extends TestCase
         $cargar = $this->postJson("/api/hhee/solicitudes/{$id}/horas-reales", [
             'detalles' => $detalleIds->map(fn ($detalleId) => [
                 'detalle_id' => $detalleId,
-                'hs_reales_50' => 8,
+                'horas_reales' => 8,
                 'fecha_realizacion' => now()->toDateString(),
             ])->all(),
         ]);
@@ -628,7 +623,7 @@ class HheeCircuitoTest extends TestCase
         $payloadReales = [
             'detalles' => [[
                 'detalle_id' => $detalleId,
-                'hs_reales_50' => 8,
+                'horas_reales' => 8,
                 'fecha_realizacion' => now()->toDateString(),
             ]],
         ];
@@ -671,17 +666,35 @@ class HheeCircuitoTest extends TestCase
         $crear->assertJsonValidationErrors(['detalles']);
     }
 
-    public function test_store_con_desglose_que_no_suma_las_horas_del_turno_da_422(): void
+    public function test_store_con_hora_desde_igual_a_hora_hasta_da_422(): void
     {
         $depto = $this->departamento();
         $gl = $this->usuario($depto);
 
         Passport::actingAs($gl);
         $crear = $this->postJson('/api/hhee/solicitudes', $this->payload($depto, [
-            $this->detalle(['hs_teoricas_50' => 5]), // turno de 8hs, desglose de 5hs
+            $this->detalle(['hora_desde' => '08:00', 'hora_hasta' => '08:00']),
         ]));
         $crear->assertStatus(422);
         $crear->assertJsonValidationErrors(['detalles.0']);
+    }
+
+    public function test_store_con_turno_que_cruza_medianoche_calcula_las_horas_automaticamente(): void
+    {
+        // 22:00 -> 02:00 = 4hs, sin mandar ningún flag de cruce.
+        $depto = $this->departamento();
+        $gl = $this->usuario($depto);
+
+        Passport::actingAs($gl);
+        $crear = $this->postJson('/api/hhee/solicitudes', $this->payload($depto, [
+            $this->detalle(['hora_desde' => '22:00', 'hora_hasta' => '02:00']),
+        ]));
+        $crear->assertStatus(201);
+        $id = $crear->json('id');
+
+        $detalle = SolicitudHhee::findOrFail($id)->detalles()->first();
+        $this->assertSame('4.00', (string) $detalle->horas_teoricas);
+        $this->assertTrue((bool) $detalle->cruza_medianoche);
     }
 
     public function test_store_que_supera_el_tope_de_horas_por_empleado_da_422(): void
@@ -694,7 +707,6 @@ class HheeCircuitoTest extends TestCase
             $this->detalle([
                 'hora_desde' => '08:00',
                 'hora_hasta' => '23:00', // 15hs, supera el tope default de 12
-                'hs_teoricas_50' => 15,
             ]),
         ]));
         $crear->assertStatus(422);
@@ -782,7 +794,7 @@ class HheeCircuitoTest extends TestCase
         Passport::actingAs($gl);
         $crear = $this->postJson('/api/hhee/solicitudes', $this->payload($depto, [
             $this->detalle(['nombre' => $empleado->name, 'user_id' => $empleado->id]),
-            $this->detalle(['nombre' => 'Operario Sin Usuario', 'legajo' => '999']), // sin user_id
+            $this->detalle(['nombre' => 'Operario Sin Usuario']), // sin user_id
         ]));
         $crear->assertStatus(201);
         $id = $crear->json('id');
@@ -1008,11 +1020,11 @@ class HheeCircuitoTest extends TestCase
         $cargar = $this->postJson("/api/hhee/solicitudes/{$solicitud->id}/horas-reales", [
             'detalles' => [[
                 'detalle_id' => $detalleId,
-                // 24+24+24+24 = 96hs: muy por encima del tope default (12).
-                'hs_reales_50' => 24,
-                'hs_reales_100' => 24,
-                'hs_reales_50n' => 24,
-                'hs_reales_100n' => 24,
+                // 20hs: por encima del tope default (12), pero dentro del
+                // max:24 de sanidad del controller (para que el 422 salga de
+                // la validación de negocio de HheeFlujo, no de la forma del
+                // payload).
+                'horas_reales' => 20,
                 'fecha_realizacion' => now()->toDateString(),
             ]],
         ]);
@@ -1037,8 +1049,8 @@ class HheeCircuitoTest extends TestCase
 
         Passport::actingAs($gl);
         $id = $this->postJson('/api/hhee/solicitudes', $this->payload($depto, [
-            $this->detalle(['nombre' => 'Juan Pérez', 'legajo' => '1']),
-            $this->detalle(['nombre' => 'María López', 'legajo' => '2']),
+            $this->detalle(['nombre' => 'Juan Pérez']),
+            $this->detalle(['nombre' => 'María López']),
         ]))->json('id');
         $this->postJson("/api/hhee/solicitudes/{$id}/enviar")->assertStatus(200);
 
@@ -1055,7 +1067,7 @@ class HheeCircuitoTest extends TestCase
         $cargar = $this->postJson("/api/hhee/solicitudes/{$id}/horas-reales", [
             'detalles' => [[
                 'detalle_id' => $primerDetalleId,
-                'hs_reales_50' => 8,
+                'horas_reales' => 8,
                 'fecha_realizacion' => now()->toDateString(),
             ]],
         ]);

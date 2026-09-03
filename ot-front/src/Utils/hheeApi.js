@@ -3,11 +3,13 @@
 // duplica el manejo de token/401/403, ni se introduce ninguna librería nueva.
 import { apiFetch, buildQuery } from './otApi';
 
-// GET /api/hhee/catalogos -> { estados, roles_labels, tipos_hora, mis_niveles,
+// GET /api/hhee/catalogos -> { estados, roles_labels, mis_niveles,
 // es_contingencia, max_horas_por_empleado, departamentos, usuarios, sectores }
 // ('sectores' y el resto de departamentos/usuarios son opcionales según la
 // versión del backend desplegada; ver Utils/hhee.js getSectoresHhee() para el
-// fallback si 'sectores' todavía no vino).
+// fallback si 'sectores' todavía no vino). El backend puede seguir mandando
+// 'tipos_hora' (era para el desglose 50/100/50N/100N que ya no existe en la
+// carga simplificada); el front no lo lee.
 export function fetchCatalogosHhee() {
     return apiFetch('hhee/catalogos');
 }
@@ -83,7 +85,7 @@ export function anularSolicitudHhee(id) {
     return apiFetch(`hhee/solicitudes/${id}/anular`, { method: 'POST' });
 }
 
-// POST /api/hhee/solicitudes/{id}/horas-reales { detalles: [{detalle_id, hs_reales_50, hs_reales_100, hs_reales_50n, hs_reales_100n, fecha_realizacion}] }
+// POST /api/hhee/solicitudes/{id}/horas-reales { detalles: [{detalle_id, horas_reales, fecha_realizacion}] }
 export function cargarHorasRealesHhee(id, payload) {
     return apiFetch(`hhee/solicitudes/${id}/horas-reales`, {
         method: 'POST',
