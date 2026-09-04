@@ -423,7 +423,6 @@ const OrdenTrabajoList = () => {
         });
 
         const res = await data.json();
-        console.log(res)
 
         setOrdenes(res);
         setOrdenesSinFiltro(res);
