@@ -33,6 +33,7 @@ const getRawArchivoValue = (desc) => desc?.archivo_nombre || desc?.archivo_url |
 
 const getArchivoNombre = (desc) => {
     let archivo = String(getRawArchivoValue(desc)).trim();
+    let isUrl = false;
 
     if (!archivo) {
         return 'archivo';
@@ -41,16 +42,19 @@ const getArchivoNombre = (desc) => {
     try {
         if (/^https?:\/\//i.test(archivo)) {
             archivo = new URL(archivo).pathname;
+            isUrl = true;
         }
     } catch {
         // Mantiene el valor original si no es una URL válida.
     }
 
-    archivo = archivo
-        .replace(/\\/g, '/')
-        .split('?')[0]
-        .split('#')[0]
-        .replace(/^(\/)?(public\/)?storage\/archivos\//, '');
+    archivo = archivo.replace(/\\/g, '/');
+
+    if (isUrl) {
+        archivo = archivo.split('?')[0].split('#')[0];
+    }
+
+    archivo = archivo.replace(/^(\/)?(public\/)?storage\/archivos\//, '');
 
     const nombre = archivo.split('/').filter(Boolean).pop() || archivo;
 
@@ -155,7 +159,7 @@ export default function ModalDescripcion({ isOpen, setIsOpen, idOrden }) {
     const handleCancel = () => setIsOpen(false);
 
     const getFileExtension = (desc) => {
-        const cleanName = getArchivoNombre(desc).split('?')[0].split('#')[0];
+        const cleanName = getArchivoNombre(desc);
 
         return cleanName.includes('.') ? cleanName.split('.').pop().toLowerCase() : '';
     };
