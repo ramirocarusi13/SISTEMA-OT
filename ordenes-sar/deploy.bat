@@ -43,6 +43,8 @@ docker build . -t api-ot:latest
 if errorlevel 1 (
   echo.
   echo ERROR: fallo el build. El contenedor que esta corriendo NO se toco.
+  echo Revisa las lineas de arriba para ver el motivo del error.
+  pause
   exit /b 1
 )
 
@@ -58,7 +60,13 @@ docker run -d ^
   -v ot_files:/var/www/html/public/storage/archivos ^
   -p 8585:80 ^
   api-ot:latest
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+  echo.
+  echo ERROR: fallo el docker run. Revisa las lineas de arriba.
+  pause
+  exit /b 1
+)
 
 echo.
 echo api-ot desplegado. Probar: http://192.168.8.16:8585/api/
+pause
