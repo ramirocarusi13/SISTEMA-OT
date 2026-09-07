@@ -854,7 +854,7 @@ class HheeCircuitoTest extends TestCase
         $this->assertLessThan($indiceZzz, $indiceAaa);
     }
 
-    public function test_catalogos_incluye_los_4_sectores_fijos(): void
+    public function test_catalogos_incluye_los_sectores_fijos(): void
     {
         $depto = $this->departamento();
         $gl = $this->usuario($depto);
@@ -862,7 +862,7 @@ class HheeCircuitoTest extends TestCase
         Passport::actingAs($gl);
         $catalogos = $this->getJson('/api/hhee/catalogos');
         $catalogos->assertStatus(200);
-        $catalogos->assertJsonPath('sectores', ['Corte', 'Costura', 'Mantenimiento', 'PC']);
+        $catalogos->assertJsonPath('sectores', ['Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff']);
     }
 
     // =========================================================================

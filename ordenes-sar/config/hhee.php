@@ -100,6 +100,6 @@ return [
     |
     */
 
-    'sectores' => ['Corte', 'Costura', 'Mantenimiento', 'PC'],
+    'sectores' => ['Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff'],
 
 ];

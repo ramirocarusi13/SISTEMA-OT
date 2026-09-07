@@ -104,7 +104,7 @@ export function iniciales(nombre) {
 // logueado. Lo que sí carga el solicitante es el "Sector" del turno (valores
 // fijos del formulario FO-008-RRH). Fallback local por si catalogos.sectores
 // todavía no vino del backend (módulo en desarrollo en paralelo).
-export const SECTORES_HHEE_FALLBACK = ['Corte', 'Costura', 'Mantenimiento', 'PC'];
+export const SECTORES_HHEE_FALLBACK = ['Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff'];
 
 /** Opciones de sector: catálogo del backend (catalogos.sectores) si ya está, si no el fallback fijo de arriba. */
 export function getSectoresHhee(catalogos) {
