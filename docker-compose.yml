@@ -33,3 +33,13 @@ services:
 volumes:
   ot_files:
     external: true
+
+# Misma red que usan los deploy.bat de ordenes-sar y ot-front (docker run
+# --network ot-network). Sin esto, Compose crea su red propia
+# (sistema-ot_default) y si un contenedor se deploya por compose y el otro por
+# deploy.bat quedan en redes distintas: nginx del front no resuelve el
+# upstream "backend" y reinicia en loop (paso el 01/09 y el 07/09/2026).
+networks:
+  default:
+    name: ot-network
+    external: true
