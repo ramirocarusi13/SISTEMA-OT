@@ -86,5 +86,10 @@ class Kernel extends HttpKernel
         // de seguridad). El chequeo es POR ORDEN, no por usuario. Ver
         // App\Http\Middleware\BloquearEscrituraOrdenAjena.
         'bloquear.escritura.orden.ajena' => \App\Http\Middleware\BloquearEscrituraOrdenAjena::class,
+        // Autenticación por secreto compartido (header X-Integracion-Key) de
+        // los endpoints de integración servidor-a-servidor de HHEE con
+        // APP-RRHH, en vez de auth:api/Passport. Ver
+        // App\Http\Middleware\VerificarIntegracionHhee.
+        'hhee.integracion' => \App\Http\Middleware\VerificarIntegracionHhee::class,
     ];
 }

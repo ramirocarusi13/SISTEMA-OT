@@ -12,6 +12,7 @@ use App\Http\Controllers\NotificacionesController;
 use App\Http\Controllers\MensajeController;
 use App\Http\Controllers\ReporteController;
 use App\Http\Controllers\SolicitudHheeController;
+use App\Http\Controllers\HheeIntegracionController;
 
 /*
 |---------------------------------------------------------------------------
@@ -121,3 +122,19 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
         Route::post('/solicitudes/{id}/horas-reales', [SolicitudHheeController::class, 'horasReales']);
     });
 });
+
+// -----------------------------------------------------------------------
+// Integración servidor-a-servidor de HHEE con APP-RRHH (Laravel aparte,
+// :8587): FUERA del grupo 'auth:api' a propósito -- APP-RRHH no tiene un
+// usuario/token de este sistema, se autentica con un secreto compartido
+// (header X-Integracion-Key, ver App\Http\Middleware\VerificarIntegracionHhee
+// / config('hhee.integracion_key')). APP-RRHH consulta las HHEE leyendo la
+// base ordenes_sar directamente (solo lectura); estos endpoints son
+// exclusivamente para GESTIONAR (aprobar/rechazar) la firma final.
+// -----------------------------------------------------------------------
+Route::prefix('hhee/integracion')
+    ->middleware(['hhee.integracion', 'cors', 'json.response'])
+    ->group(function () {
+        Route::post('/solicitudes/{id}/aprobar', [HheeIntegracionController::class, 'aprobar']);
+        Route::post('/solicitudes/{id}/rechazar', [HheeIntegracionController::class, 'rechazar']);
+    });

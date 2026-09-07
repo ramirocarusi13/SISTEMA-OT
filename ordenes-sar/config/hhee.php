@@ -102,4 +102,24 @@ return [
 
     'sectores' => ['Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff'],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Integración servidor-a-servidor con APP-RRHH
+    |--------------------------------------------------------------------------
+    |
+    | APP-RRHH (Laravel aparte, :8587) consulta las HHEE leyendo la base
+    | ordenes_sar directamente (solo lectura), pero para GESTIONAR (aprobar/
+    | rechazar la firma final) llama a esta API server-to-server, autenticada
+    | por este key compartido (header X-Integracion-Key, ver
+    | App\Http\Middleware\VerificarIntegracionHhee), NO por auth:api/Passport.
+    |
+    | NUNCA hardcodear el valor acá: sale de env('HHEE_INTEGRACION_KEY'), un
+    | secreto random de 32+ caracteres generado a mano y cargado en el .env de
+    | cada entorno (dev/prod tienen valores DISTINTOS). Si no está configurado
+    | (null), el middleware responde 503 en vez de dejar pasar por error.
+    |
+    */
+
+    'integracion_key' => env('HHEE_INTEGRACION_KEY'),
+
 ];
