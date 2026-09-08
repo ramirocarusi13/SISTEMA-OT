@@ -294,15 +294,23 @@ class OrdenTrabajoController extends Controller
             }
 
             // Finalizar solo puede: el GL dueño (ya validado arriba), el gerente de mantenimiento,
-            // el gerente del departamento del creador, o el analista creador de la orden
+            // el gerente del departamento del creador, el analista creador de la orden, o
+            // cualquier usuario (sin importar su rol) que sea EL ASIGNADO de esta orden puntual.
+            // Este último caso cubre a usuarios como Marcelo Ferreyra (gerente que pasó a
+            // Mantenimiento para asignar OTs, pero que también recibe y finaliza las suyas): no
+            // depende de users.es_asignable (ese flag solo gobierna a quién puede elegir el front
+            // como asignable al momento de asignar, ver UserController::getUsuariosMantenimiento);
+            // acá alcanza con que la orden ya esté asignada a este usuario, igual que la regla de
+            // arriba para group_leader.
             if ($request->estado === 'finalizada' && $userLogueado->rol !== Roles::GROUP_LEADER) {
                 $esGerenteMantenimiento = $userLogueado->rol === Roles::GERENTE && (int) $userLogueado->departamento_id === 2;
                 $esGerenteDelCreador = $userLogueado->rol === Roles::GERENTE
                     && $orden->creador
                     && (int) $userLogueado->departamento_id === (int) $orden->creador->departamento_id;
                 $esAnalistaCreador = $userLogueado->rol === 'analista' && (int) $orden->usuario_id === (int) $userLogueado->id;
+                $esAsignado = (int) $orden->usuario_mantenimiento_id === (int) $userLogueado->id;
 
-                if (!$esGerenteMantenimiento && !$esGerenteDelCreador && !$esAnalistaCreador) {
+                if (!$esGerenteMantenimiento && !$esGerenteDelCreador && !$esAnalistaCreador && !$esAsignado) {
                     return response()->json(['error' => 'No tiene permisos para finalizar esta orden'], 403);
                 }
             }

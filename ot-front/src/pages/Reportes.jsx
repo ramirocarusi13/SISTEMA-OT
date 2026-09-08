@@ -334,12 +334,14 @@ const Reportes = () => {
     const [tecnicosFiltro, setTecnicosFiltro] = useState([]);
 
     // Lista de técnicos de mantenimiento para el selector de "Técnico asignado"
-    // (mismo endpoint y mismo filtro por rol que usa ModalCrearOrdenTrabajo/OrdenTrabajoList).
+    // (mismo endpoint y mismo filtro que usa OrdenTrabajoList: group_leader +
+    // usuarios marcados como asignables por el backend, ej. un gerente que
+    // también toma OTs).
     useEffect(() => {
         (async () => {
             const { ok, data } = await fetchUsuariosMantenimiento();
             if (ok && Array.isArray(data)) {
-                setTecnicosFiltro(data.filter((u) => u.rol === 'group_leader'));
+                setTecnicosFiltro(data.filter((u) => u.rol === 'group_leader' || u.es_asignable));
             }
         })();
     }, []);

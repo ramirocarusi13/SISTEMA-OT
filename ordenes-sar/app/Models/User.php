@@ -24,6 +24,11 @@ class User extends Authenticatable
         'departamento_id',
         'rol',
         'turno',
+        // Marca INDIVIDUAL (no por rol) de qué usuarios pueden recibir OTs
+        // asignadas y finalizarlas además de los group_leader de siempre. Ver
+        // OrdenTrabajoController::updateEstado() y
+        // UserController::getUsuariosMantenimiento().
+        'es_asignable',
     ];
 
     protected $hidden = [
@@ -34,6 +39,7 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'es_asignable' => 'boolean',
     ];
 
     /**

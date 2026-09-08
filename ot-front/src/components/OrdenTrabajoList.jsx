@@ -257,7 +257,10 @@ const OrdenTrabajoList = () => {
         // Ajusta el endpoint según sea necesario
 
         const response = await data.json();
-        setUsuariosMantenimiento(response.filter(p => p.rol === 'group_leader'));
+        // Además de los group_leader, un usuario marcado por el backend como
+        // asignable (es_asignable, ej. un gerente de Mantenimiento que también
+        // toma OTs) puede aparecer como técnico a asignar.
+        setUsuariosMantenimiento(response.filter(p => p.rol === 'group_leader' || p.es_asignable));
         setIsOpenAsignarModal(true);
     };
 
@@ -317,8 +320,10 @@ const OrdenTrabajoList = () => {
             });
 
             const response = await data.json();
+            // Mismo criterio que abrirModalAsignar(): group_leader + usuarios marcados
+            // como asignables por el backend (es_asignable).
             setUsuariosMantenimientoFiltro(
-                Array.isArray(response) ? response.filter(p => p.rol === 'group_leader') : []
+                Array.isArray(response) ? response.filter(p => p.rol === 'group_leader' || p.es_asignable) : []
             );
         } catch {
             setUsuariosMantenimientoFiltro([]);
@@ -806,7 +811,12 @@ const OrdenTrabajoList = () => {
                     )}
                     {puedeEscribirOrden && orden.estado === 'asignada' && (
                         (usuario?.rol === 'group_leader' && parseInt(orden.usuario_mantenimiento_id) === parseInt(usuario?.id)) ||
-                        (usuario?.rol === 'gerente' && parseInt(usuario?.departamento_id) === 2)
+                        (usuario?.rol === 'gerente' && parseInt(usuario?.departamento_id) === 2) ||
+                        // Usuario marcado como asignable por el backend (es_asignable, ej. un
+                        // gerente de MTTO que también toma OTs): puede finalizar SU propia OT
+                        // asignada aunque su rol no sea 'group_leader'. No habilita nada para
+                        // quien no sea el asignado de ESTA orden puntual.
+                        parseInt(orden.usuario_mantenimiento_id) === parseInt(usuario?.id)
                     ) && (
                         <Button
                             type="primary"

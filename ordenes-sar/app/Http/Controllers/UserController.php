@@ -69,14 +69,20 @@ class UserController extends Controller
     /**
      * Obtener usuarios del departamento de mantenimiento.
      *
+     * 'es_asignable' viaja solo en cada usuario (columna real del modelo,
+     * sin necesidad de armarla a mano): el front la usa para el selector de
+     * asignables, hoy limitado a group_leader por convención propia del
+     * front, más los usuarios marcados individualmente con este flag (ver
+     * migración 2026_09_08_000001_add_es_asignable_to_users_table.php).
+     *
      * @return \Illuminate\Http\JsonResponse
      */
     public function getUsuariosMantenimiento()
     {
         // Buscar usuarios del departamento de mantenimiento (departamento_id 2)
         $usuariosMantenimiento = User::where('departamento_id', 2)->get();
-        
-        
+
+
         return  response()->json($usuariosMantenimiento);
     }
 }
