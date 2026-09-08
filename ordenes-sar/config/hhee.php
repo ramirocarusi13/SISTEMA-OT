@@ -101,7 +101,7 @@ return [
     |
     */
 
-    'sectores' => ['Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff'],
+    'sectores' => ['Calidad', 'Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff'],
 
     /*
     |--------------------------------------------------------------------------
