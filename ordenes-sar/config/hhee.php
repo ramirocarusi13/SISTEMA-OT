@@ -10,9 +10,10 @@ return [
     |--------------------------------------------------------------------------
     |
     | Matriz nivel -> roles que pueden firmar ese nivel (hhee_roles_aprobacion.rol).
-    | Nivel 1 (jefe/gerente_area) respeta departamento_id de la solicitud (o fila
-    | global con departamento_id NULL en hhee_roles_aprobacion); nivel 2 es
-    | siempre de alcance global (ignora departamento_id de la fila).
+    | AMBOS niveles respetan departamento_id de la fila en hhee_roles_aprobacion:
+    | NULL = alcance global, un id concreto = solo ese departamento. Así pueden
+    | convivir finales "de área" (ej. una última firma solo para ciertos
+    | departamentos) con finales globales como gerencia general.
     |
     | El módulo asume EXACTAMENTE 2 niveles de aprobación (ver
     | hhee_aprobaciones.nivel, tinyint 1|2, y hhee_solicitudes.estado:
