@@ -161,7 +161,13 @@ const HorasExtras = () => {
     }, [cargarPendientes]);
 
     const mostrarTabPendientes = (catalogos?.mis_niveles || []).length > 0;
-    const mostrarTabTodas = !!catalogos?.es_contingencia || (catalogos?.mis_niveles || []).includes(2);
+    // Cualquier aprobador necesita una vista de consulta: la de "pendientes de
+    // mi firma" se vacia apenas firma, y sin esta pestaña un aprobador de
+    // nivel 1 perdia de vista las solicitudes de su area ya firmadas. El
+    // backend acota el alcance (AlcanceHhee::aplicar), asi que un nivel 1 solo
+    // ve las de su(s) departamento(s).
+    const mostrarTabTodas = mostrarTabPendientes;
+    const alcanceTodasEsGlobal = !!catalogos?.es_contingencia || (catalogos?.mis_niveles || []).includes(2);
 
     useEffect(() => {
         if (tabActiva === 'todas' && mostrarTabTodas) {
@@ -331,7 +337,7 @@ const HorasExtras = () => {
     if (mostrarTabTodas) {
         tabItems.push({
             key: 'todas',
-            label: 'Todas',
+            label: alcanceTodasEsGlobal ? 'Todas' : 'De mi área',
             children: renderTablaServidor(tablaTodas, filtrosTodas, setFiltrosTodas, cargarTodas, true),
         });
     }
