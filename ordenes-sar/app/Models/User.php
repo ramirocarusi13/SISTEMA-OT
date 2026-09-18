@@ -29,6 +29,11 @@ class User extends Authenticatable
         // OrdenTrabajoController::updateEstado() y
         // UserController::getUsuariosMantenimiento().
         'es_asignable',
+        // Celular (para WhatsApp, ver App\Support\WhatsApp::chatIdDesdeCelular())
+        // y flag INDIVIDUAL que habilita el canal para este usuario. Se cargan
+        // con el comando `whatsapp:usuario` (App\Console\Commands\WhatsAppUsuarioCommand).
+        'celular',
+        'whatsapp_activo',
     ];
 
     protected $hidden = [
@@ -40,6 +45,7 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
         'es_asignable' => 'boolean',
+        'whatsapp_activo' => 'boolean',
     ];
 
     /**

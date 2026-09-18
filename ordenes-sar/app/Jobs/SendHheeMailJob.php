@@ -44,4 +44,19 @@ class SendHheeMailJob implements ShouldQueue
             Log::error('Error enviando mail de HHEE a ' . $this->destinatarioEmail . ': ' . $e->getMessage());
         }
     }
+
+    /**
+     * Getters mínimos para que los tests (Queue::fake()/Queue::assertPushed())
+     * puedan inspeccionar el job encolado sin exponer las propiedades como
+     * públicas ni cambiar el comportamiento de handle().
+     */
+    public function destinatarioEmail(): string
+    {
+        return $this->destinatarioEmail;
+    }
+
+    public function mailable(): Mailable
+    {
+        return $this->mailable;
+    }
 }

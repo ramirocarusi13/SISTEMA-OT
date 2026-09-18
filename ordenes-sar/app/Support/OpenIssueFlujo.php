@@ -264,7 +264,7 @@ class OpenIssueFlujo
 
             self::registrarActualizacion($actual, $actor, OpenIssueEstados::TIPO_CIERRE, $texto, $estadoAnterior, OpenIssueEstados::CERRADO);
 
-            OpenIssueNotificador::notificarCierre($actual, $actor, $estadoAnterior);
+            OpenIssueNotificador::notificarCierre($actual, $actor, $estadoAnterior, $texto);
 
             return $actual->fresh();
         });

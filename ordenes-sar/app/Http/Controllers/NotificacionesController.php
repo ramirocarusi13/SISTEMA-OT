@@ -20,21 +20,13 @@ class NotificacionesController extends Controller
             ->map(function ($notificacion) {
                 // 'detalle' es un campo calculado (no columna): el texto de la
                 // campana varía según 'tipo' (agregado por la migración de HHEE,
-                // NOT NULL con default 'ot'). Para 'ot' se mantiene EXACTAMENTE
-                // el mismo comportamiento que antes (no romper clientes
-                // existentes); para 'hhee' se arma un texto propio a partir del
-                // 'mensaje' ya armado por App\Support\HheeNotificador. 'tipo',
-                // 'solicitud_hhee_id' y 'open_issue_id' viajan igual en la
-                // respuesta por ser columnas propias del modelo (sin
-                // necesidad de agregarlas acá).
-                if ($notificacion->tipo === 'hhee') {
-                    $notificacion->detalle = "Solicitud HHEE #{$notificacion->solicitud_hhee_id} – {$notificacion->mensaje}";
-                } elseif ($notificacion->tipo === 'open_issue') {
-                    $notificacion->detalle = "Open Issue #{$notificacion->open_issue_id} – {$notificacion->mensaje}";
-                } else {
-                    $usuarioNombre = $notificacion->usuarioMantenimiento->name ?? 'Usuario desconocido';
-                    $notificacion->detalle = "{$usuarioNombre} ha cambiado el estado de la orden de trabajo a {$notificacion->estado_nuevo}";
-                }
+                // NOT NULL con default 'ot'). Lógica centralizada en
+                // Notificacion::textoDetalle() (también la reusa
+                // App\Support\WhatsAppNotificador para el mensaje de WhatsApp),
+                // para no duplicarla acá. 'tipo', 'solicitud_hhee_id' y
+                // 'open_issue_id' viajan igual en la respuesta por ser columnas
+                // propias del modelo (sin necesidad de agregarlas acá).
+                $notificacion->detalle = $notificacion->textoDetalle();
 
                 return $notificacion;
             });

@@ -862,7 +862,9 @@ class HheeCircuitoTest extends TestCase
         Passport::actingAs($gl);
         $catalogos = $this->getJson('/api/hhee/catalogos');
         $catalogos->assertStatus(200);
-        $catalogos->assertJsonPath('sectores', ['Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff']);
+        // Debe reflejar config('hhee.sectores') tal cual (Calidad se agregó en el
+        // commit "HHEE: agregar Calidad a los sectores" sin actualizar este test).
+        $catalogos->assertJsonPath('sectores', ['Calidad', 'Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff']);
     }
 
     // =========================================================================

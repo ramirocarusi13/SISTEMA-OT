@@ -31,4 +31,17 @@ return [
         'mimes' => ['jpeg', 'png', 'jpg', 'gif', 'svg', 'pdf', 'doc', 'docx', 'xls', 'xlsx'],
     ],
 
+    // Mail (además de la campana). Mismo patrón que App\Support\HheeNotificador:
+    // App\Mail\OpenIssueMail se despacha SIEMPRE por App\Jobs\SendHheeMailJob (reusado),
+    // nunca de forma síncrona. 'eventos' es la lista blanca de qué dispara mail; si un
+    // evento no está en la lista, esa notificación queda solo en campana.
+    'mail' => [
+        'enabled' => env('OPEN_ISSUES_MAIL_ENABLED', true),
+        'eventos' => ['involucrado', 'actualizacion', 'cambio_estado', 'cierre', 'reapertura'],
+    ],
+
+    // Front del sistema (Nginx), para armar el deep-link "{front_url}/open-issues?issue={id}"
+    // que usan los mails (igual criterio que la campana en el front).
+    'front_url' => env('OPEN_ISSUES_FRONT_URL', 'http://192.168.8.16:9050'),
+
 ];
