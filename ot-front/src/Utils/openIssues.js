@@ -62,11 +62,13 @@ export function getColorTimeline(tipo) {
  * Los usuarios sin departamento reconocido quedan en un grupo "Sin departamento".
  */
 export function agruparUsuariosPorDepartamento(usuarios = [], departamentos = []) {
-    const nombrePorDepto = new Map(departamentos.map((d) => [d.id, d.nombre]));
+    // Ids normalizados a número: según el driver pueden venir como string y un
+    // Map con claves mixtas dejaría a todos en "Sin departamento".
+    const nombrePorDepto = new Map(departamentos.map((d) => [Number(d.id), d.nombre]));
     const grupos = new Map();
 
     usuarios.forEach((u) => {
-        const nombreGrupo = nombrePorDepto.get(u.departamento_id) || 'Sin departamento';
+        const nombreGrupo = nombrePorDepto.get(Number(u.departamento_id)) || 'Sin departamento';
         if (!grupos.has(nombreGrupo)) grupos.set(nombreGrupo, []);
         grupos.get(nombreGrupo).push({ label: u.name, value: u.id });
     });
