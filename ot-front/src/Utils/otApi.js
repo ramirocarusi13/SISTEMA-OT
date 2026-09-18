@@ -21,7 +21,12 @@ async function apiFetch(path, options = {}) {
             headers: {
                 Authorization: `Bearer ${token}`,
                 Accept: 'application/json',
-                ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+                // Con FormData el browser tiene que poner él el
+                // `Content-Type: multipart/form-data; boundary=...`; si se lo
+                // forzamos a `application/json`, Laravel no parsea el archivo.
+                // Ningún caller existente pasa FormData, así que el
+                // comportamiento de OT y HHEE no cambia.
+                ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
                 ...options.headers,
             },
         });

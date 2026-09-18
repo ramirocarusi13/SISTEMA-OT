@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Badge } from 'antd';
-import { FaClipboardList, FaChartBar, FaRegClock } from 'react-icons/fa';
+import { FaClipboardList, FaChartBar, FaRegClock, FaTasks } from 'react-icons/fa';
 import { fetchPendientesHhee } from '../Utils/hheeApi';
+import { fetchPendientesOpenIssues } from '../Utils/openIssuesApi';
 
 // Intervalo de polling del badge de HHEE (mismo patrón que la campana de
 // notificaciones, ver components/Notificacion.jsx).
@@ -10,6 +11,7 @@ const INTERVALO_POLLING_MS = 120000;
 
 const Header = () => {
     const [pendientesHhee, setPendientesHhee] = useState(0);
+    const [pendientesOpenIssues, setPendientesOpenIssues] = useState(0);
 
     const cargarPendientesHhee = useCallback(async () => {
         // Pide solo el total (?solo_total=1): si el backend todavía no lo
@@ -20,6 +22,14 @@ const Header = () => {
         if (ok) {
             const total = typeof data?.total === 'number' ? data.total : (data?.solicitudes?.length || 0);
             setPendientesHhee(total);
+        }
+    }, []);
+
+    const cargarPendientesOpenIssues = useCallback(async () => {
+        const { ok, data } = await fetchPendientesOpenIssues(true);
+        if (ok) {
+            const total = typeof data?.total === 'number' ? data.total : (data?.issues?.length || 0);
+            setPendientesOpenIssues(total);
         }
     }, []);
 
@@ -36,6 +46,18 @@ const Header = () => {
             window.removeEventListener('hhee:actualizado', cargarPendientesHhee);
         };
     }, [cargarPendientesHhee]);
+
+    // useEffect PROPIO, independiente del de HHEE (ese no se toca).
+    useEffect(() => {
+        cargarPendientesOpenIssues();
+        const interval = setInterval(cargarPendientesOpenIssues, INTERVALO_POLLING_MS);
+        window.addEventListener('openissues:actualizado', cargarPendientesOpenIssues);
+
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('openissues:actualizado', cargarPendientesOpenIssues);
+        };
+    }, [cargarPendientesOpenIssues]);
 
     return (
         <header className="ot-header-nav">
@@ -61,6 +83,17 @@ const Header = () => {
                     <span className="ot-header-link__label">
                         <FaRegClock />
                         Horas Extras
+                    </span>
+                </Badge>
+            </NavLink>
+            <NavLink
+                to="/open-issues"
+                className={({ isActive }) => `ot-header-link ${isActive ? 'is-active' : ''}`}
+            >
+                <Badge count={pendientesOpenIssues} size="small" offset={[6, -2]} overflowCount={99}>
+                    <span className="ot-header-link__label">
+                        <FaTasks />
+                        Open Issues
                     </span>
                 </Badge>
             </NavLink>

@@ -65,14 +65,19 @@ export default function Notificacion() {
         setIsModalVisible(false);
     };
 
-    // Las notificaciones de OT ('tipo' ausente o 'ot') no navegan a ningún
-    // lado (comportamiento histórico, sin cambios). Las de HHEE llevan al
-    // detalle de la solicitud correspondiente.
+    // Mapa tipo de notificación -> destino del deep-link. Las de OT ('tipo'
+    // ausente o 'ot') NO navegan a ningún lado (comportamiento histórico, sin cambios).
+    const destinoNotificacion = (n) => {
+        if (n.tipo === 'hhee' && n.solicitud_hhee_id) return `/horas-extras?solicitud=${n.solicitud_hhee_id}`;
+        if (n.tipo === 'open_issue' && n.open_issue_id) return `/open-issues?issue=${n.open_issue_id}`;
+        return null;
+    };
+
     const handleClickNotificacion = (notificacion) => {
-        if (notificacion.tipo === 'hhee' && notificacion.solicitud_hhee_id) {
-            setIsModalVisible(false);
-            navigate(`/horas-extras?solicitud=${notificacion.solicitud_hhee_id}`);
-        }
+        const destino = destinoNotificacion(notificacion);
+        if (!destino) return;
+        setIsModalVisible(false);
+        navigate(destino);
     };
 
     return (
@@ -96,18 +101,21 @@ export default function Notificacion() {
                     {notificaciones.length === 0 ? (
                         <p>No hay notificaciones.</p>
                     ) : (
-                        notificaciones.map((notificacion) => (
+                        notificaciones.map((notificacion) => {
+                            const esClickeable = !!destinoNotificacion(notificacion);
+                            return (
                             <div
                                 key={notificacion.id}
-                                className={`notification-item ${notificacion.leido ? 'is-read' : ''} ${notificacion.tipo === 'hhee' ? 'is-clickable' : ''}`}
+                                className={`notification-item ${notificacion.leido ? 'is-read' : ''} ${esClickeable ? 'is-clickable' : ''}`}
                                 onClick={() => handleClickNotificacion(notificacion)}
-                                role={notificacion.tipo === 'hhee' ? 'button' : undefined}
-                                tabIndex={notificacion.tipo === 'hhee' ? 0 : undefined}
+                                role={esClickeable ? 'button' : undefined}
+                                tabIndex={esClickeable ? 0 : undefined}
                             >
                                 <p>{notificacion.detalle}</p>
                                 <small>{new Date(notificacion.created_at).toLocaleString()}</small>
                             </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
             </Modal>

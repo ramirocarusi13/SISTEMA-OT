@@ -23,11 +23,14 @@ class NotificacionesController extends Controller
                 // NOT NULL con default 'ot'). Para 'ot' se mantiene EXACTAMENTE
                 // el mismo comportamiento que antes (no romper clientes
                 // existentes); para 'hhee' se arma un texto propio a partir del
-                // 'mensaje' ya armado por App\Support\HheeNotificador. 'tipo' y
-                // 'solicitud_hhee_id' viajan igual en la respuesta por ser
-                // columnas propias del modelo (sin necesidad de agregarlas acá).
+                // 'mensaje' ya armado por App\Support\HheeNotificador. 'tipo',
+                // 'solicitud_hhee_id' y 'open_issue_id' viajan igual en la
+                // respuesta por ser columnas propias del modelo (sin
+                // necesidad de agregarlas acá).
                 if ($notificacion->tipo === 'hhee') {
                     $notificacion->detalle = "Solicitud HHEE #{$notificacion->solicitud_hhee_id} – {$notificacion->mensaje}";
+                } elseif ($notificacion->tipo === 'open_issue') {
+                    $notificacion->detalle = "Open Issue #{$notificacion->open_issue_id} – {$notificacion->mensaje}";
                 } else {
                     $usuarioNombre = $notificacion->usuarioMantenimiento->name ?? 'Usuario desconocido';
                     $notificacion->detalle = "{$usuarioNombre} ha cambiado el estado de la orden de trabajo a {$notificacion->estado_nuevo}";

@@ -13,6 +13,7 @@ use App\Http\Controllers\MensajeController;
 use App\Http\Controllers\ReporteController;
 use App\Http\Controllers\SolicitudHheeController;
 use App\Http\Controllers\HheeIntegracionController;
+use App\Http\Controllers\OpenIssueController;
 
 /*
 |---------------------------------------------------------------------------
@@ -120,6 +121,33 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
         Route::post('/solicitudes/{id}/rechazar', [SolicitudHheeController::class, 'rechazar']);
         Route::post('/solicitudes/{id}/anular', [SolicitudHheeController::class, 'anular']);
         Route::post('/solicitudes/{id}/horas-reales', [SolicitudHheeController::class, 'horasReales']);
+    });
+
+    // -------------------------------------------------------------------
+    // Módulo Open Issues: dominio propio (tablas oi_*), sin relación con
+    // ordenes_trabajo, así que queda FUERA de 'bloquear.escritura.orden.ajena'
+    // (ese middleware solo resuelve alcance sobre una OT). La autorización la
+    // resuelven App\Support\AlcanceOpenIssues / OpenIssueFlujo.
+    //
+    // EL ORDEN IMPORTA: /catalogos y /pendientes van ANTES de /{id} (si no,
+    // 'catalogos' matchearía como {id}); además {id} está restringido a numérico.
+    // -------------------------------------------------------------------
+    Route::prefix('open-issues')->group(function () {
+        Route::get('/catalogos', [OpenIssueController::class, 'catalogos']);
+        Route::get('/pendientes', [OpenIssueController::class, 'pendientes']);
+
+        Route::get('/', [OpenIssueController::class, 'index']);
+        Route::post('/', [OpenIssueController::class, 'store']);
+
+        Route::get('/{id}', [OpenIssueController::class, 'show'])->whereNumber('id');
+        Route::put('/{id}', [OpenIssueController::class, 'update'])->whereNumber('id');
+
+        Route::post('/{id}/actualizaciones', [OpenIssueController::class, 'storeActualizacion'])->whereNumber('id');
+        Route::post('/{id}/cerrar', [OpenIssueController::class, 'cerrar'])->whereNumber('id');
+        Route::post('/{id}/reabrir', [OpenIssueController::class, 'reabrir'])->whereNumber('id');
+        Route::post('/{id}/involucrados', [OpenIssueController::class, 'storeInvolucrados'])->whereNumber('id');
+        Route::delete('/{id}/involucrados/{userId}', [OpenIssueController::class, 'destroyInvolucrado'])
+            ->whereNumber('id')->whereNumber('userId');
     });
 });
 
