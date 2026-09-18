@@ -14,10 +14,11 @@ use Illuminate\Support\Collection;
  * lógica a mano.
  *
  * Reglas (ver spec del módulo):
- * - Nivel 1 (jefe/gerente_area): el rol matchea si departamento_id de la fila
- *   es NULL (alcance global) o igual al departamento_id de la solicitud.
- * - Nivel 2 (gerencia_general/rrhh/presidencia): alcance global, ignoran
- *   departamento_id de la fila.
+ * - Nivel 1 (jefe/gerente_area) y nivel 2 (gerencia_general/rrhh/presidencia):
+ *   el rol matchea si departamento_id de la fila es NULL (alcance global) o
+ *   igual al departamento_id de la solicitud. Esto permite "finales de área"
+ *   (una última firma acotada a ciertos departamentos) conviviendo con
+ *   finales globales (fila con departamento_id NULL, ej. gerencia general).
  * - contingencia: puede firmar CUALQUIER nivel pendiente. Si el usuario
  *   además tiene el rol legítimo para ese nivel, la firma es "normal"
  *   (rolConQueFirma() devuelve el rol legítimo y esContingencia() da false).
@@ -199,10 +200,9 @@ class HheeAprobadores
 
     /**
      * True si el usuario tiene un rol LEGÍTIMO del nivel final (hoy: nivel 2,
-     * gerencia_general/rrhh/presidencia), sin contar contingencia (eso se
-     * resuelve aparte, igual que esAprobadorNivel1()). El nivel final es
-     * siempre de alcance global, así que no hay equivalente a
-     * "departamentosNivel1()" para este nivel.
+     * gerencia_general/rrhh/presidencia) en AL MENOS un departamento (o de
+     * forma global), sin contar contingencia (eso se resuelve aparte, igual
+     * que esAprobadorNivel1()).
      */
     public static function esAprobadorNivelFinal(User $usuario): bool
     {
@@ -216,6 +216,37 @@ class HheeAprobadores
             ->where('activo', true)
             ->whereIn('rol', $rolesNivelFinal)
             ->exists();
+    }
+
+    /**
+     * True si el usuario tiene una fila de rol nivel final con departamento_id
+     * NULL (alcance global: firma la final de CUALQUIER departamento, como
+     * gerencia general). Espejo de esAprobadorNivel1Global().
+     */
+    public static function esAprobadorNivelFinalGlobal(User $usuario): bool
+    {
+        return HheeRolAprobacion::where('user_id', $usuario->id)
+            ->where('activo', true)
+            ->whereIn('rol', self::rolesDeNivelFinal())
+            ->whereNull('departamento_id')
+            ->exists();
+    }
+
+    /**
+     * Departamentos (ids únicos) para los que el usuario es aprobador de
+     * nivel final CON alcance acotado (departamento_id no nulo en la fila).
+     * Espejo de departamentosNivel1().
+     */
+    public static function departamentosNivelFinal(User $usuario): Collection
+    {
+        return HheeRolAprobacion::where('user_id', $usuario->id)
+            ->where('activo', true)
+            ->whereIn('rol', self::rolesDeNivelFinal())
+            ->whereNotNull('departamento_id')
+            ->pluck('departamento_id')
+            ->unique()
+            ->map(fn ($id) => (int) $id)
+            ->values();
     }
 
     /**
@@ -323,13 +354,15 @@ class HheeAprobadores
     }
 
     /**
-     * Solo el nivel 1 respeta departamento_id; el resto de niveles son de
-     * alcance global por definición del dominio (ver comentario de
-     * config('hhee.niveles')).
+     * TODOS los niveles respetan departamento_id de la fila: NULL = alcance
+     * global, un id concreto = solo ese departamento. Esto permite finales
+     * "de área" (ej. una última firma solo para Produccion/PC/Mantenimiento)
+     * conviviendo con finales globales como gerencia general (fila con
+     * departamento_id NULL). Ver comentario de config('hhee.niveles').
      */
     private static function esNivelConAlcanceDepartamental(int $nivel): bool
     {
-        return $nivel === 1;
+        return true;
     }
 
     /**

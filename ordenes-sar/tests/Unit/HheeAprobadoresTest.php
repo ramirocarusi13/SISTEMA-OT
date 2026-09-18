@@ -75,13 +75,17 @@ class HheeAprobadoresTest extends TestCase
         $this->assertSame('gerente_area', HheeAprobadores::rolLegitimoDeRoles($roles, 1, 999));
     }
 
-    public function test_rol_legitimo_nivel_final_ignora_departamento_de_la_solicitud(): void
+    public function test_rol_legitimo_nivel_final_respeta_departamento_de_la_fila(): void
     {
-        // rrhh es nivel 2 (alcance global): matchea aunque su fila tenga un
-        // departamento_id distinto al de la solicitud.
-        $roles = $this->roles([$this->rol('rrhh', 3)]);
+        // El nivel final tambien es departamental: una fila con departamento_id
+        // concreto solo matchea solicitudes de ESE departamento ("final de
+        // área"); NULL sigue siendo alcance global (ej. gerencia general).
+        $acotado = $this->roles([$this->rol('rrhh', 3)]);
+        $global = $this->roles([$this->rol('gerencia_general', null)]);
 
-        $this->assertSame('rrhh', HheeAprobadores::rolLegitimoDeRoles($roles, 2, 999));
+        $this->assertSame('rrhh', HheeAprobadores::rolLegitimoDeRoles($acotado, 2, 3));
+        $this->assertNull(HheeAprobadores::rolLegitimoDeRoles($acotado, 2, 999));
+        $this->assertSame('gerencia_general', HheeAprobadores::rolLegitimoDeRoles($global, 2, 999));
     }
 
     public function test_rol_legitimo_devuelve_null_si_no_tiene_ningun_rol_del_nivel(): void

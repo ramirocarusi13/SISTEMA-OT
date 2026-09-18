@@ -114,8 +114,10 @@ class AlcanceHhee
 
         $esGlobalNivel1 = $tieneContingencia || HheeAprobadores::esAprobadorNivel1Global($usuario);
         $departamentosNivel1 = HheeAprobadores::departamentosNivel1($usuario);
+        $esGlobalNivelFinal = $tieneContingencia || HheeAprobadores::esAprobadorNivelFinalGlobal($usuario);
+        $departamentosNivelFinal = HheeAprobadores::departamentosNivelFinal($usuario);
 
-        $query->where(function (Builder $q) use ($puedeNivel1, $puedeNivelFinal, $esGlobalNivel1, $departamentosNivel1) {
+        $query->where(function (Builder $q) use ($puedeNivel1, $puedeNivelFinal, $esGlobalNivel1, $departamentosNivel1, $esGlobalNivelFinal, $departamentosNivelFinal) {
             if ($puedeNivel1) {
                 $q->orWhere(function (Builder $qq) use ($esGlobalNivel1, $departamentosNivel1) {
                     $qq->where('estado', HheeEstados::PENDIENTE_NIVEL1);
@@ -127,7 +129,16 @@ class AlcanceHhee
             }
 
             if ($puedeNivelFinal) {
-                $q->orWhere('estado', HheeEstados::PENDIENTE_FINAL);
+                // El nivel final tambien respeta el alcance por departamento de
+                // la fila (NULL = global): un "final de área" solo tiene
+                // pendientes de SU firma en sus departamentos.
+                $q->orWhere(function (Builder $qq) use ($esGlobalNivelFinal, $departamentosNivelFinal) {
+                    $qq->where('estado', HheeEstados::PENDIENTE_FINAL);
+
+                    if (!$esGlobalNivelFinal) {
+                        $qq->whereIn('departamento_id', $departamentosNivelFinal);
+                    }
+                });
             }
         });
 
