@@ -1764,6 +1764,17 @@
     font-size: 11px;
   }
 
+  /* Miniatura del adjunto imagen en la actividad: se abre con el visor de
+     antd (rotar/zoom), igual que las fotos de las OT. */
+  .oi-adjunto-imagen {
+    margin-top: 8px;
+    display: inline-block;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    cursor: zoom-in;
+  }
+
   .oi-timeline-texto {
     margin: 6px 0 0;
     white-space: pre-wrap;

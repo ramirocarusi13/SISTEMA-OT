@@ -3,7 +3,7 @@
 // que ya vienen resueltos del backend (nunca se recalculan permisos acá).
 // Espejo de components/hhee/ModalDetalleSolicitudHhee.jsx.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Modal, Tag, Alert, Spin, Empty, Input, Upload, Checkbox, Timeline, message } from 'antd';
+import { Modal, Tag, Alert, Spin, Empty, Input, Upload, Checkbox, Timeline, Image, message } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import {
     fetchOpenIssue,
@@ -346,16 +346,29 @@ const ModalDetalleOpenIssue = ({ open, issueId, catalogos, onClose, onChanged })
                                                     </div>
                                                 )}
                                                 {a.texto && <p className="oi-timeline-texto">{a.texto}</p>}
-                                                {a.archivo_url && (
+                                                {/* Imágenes: mismo visor que las OT (antd Image con
+                                                    preview: rotar, zoom, espejar, sin salir de la app).
+                                                    Otros archivos (PDF, Word, Excel): link como antes. */}
+                                                {a.archivo_url && esImagenOI(a.mime_type) && (
+                                                    <div className="oi-adjunto-imagen">
+                                                        <Image
+                                                            src={a.archivo_url}
+                                                            alt={a.archivo_nombre || 'adjunto'}
+                                                            width={160}
+                                                            height={120}
+                                                            style={{ objectFit: 'cover', borderRadius: 8 }}
+                                                            preview={{ src: a.archivo_url }}
+                                                        />
+                                                    </div>
+                                                )}
+                                                {a.archivo_url && !esImagenOI(a.mime_type) && (
                                                     <a
                                                         className="hhee-adjunto-link"
                                                         href={a.archivo_url}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                     >
-                                                        {esImagenOI(a.mime_type)
-                                                            ? <img src={a.archivo_url} alt={a.archivo_nombre || 'adjunto'} />
-                                                            : (a.archivo_nombre || 'Ver adjunto')}
+                                                        {a.archivo_nombre || 'Ver adjunto'}
                                                     </a>
                                                 )}
                                             </div>
