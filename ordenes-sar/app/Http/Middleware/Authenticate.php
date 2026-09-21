@@ -12,9 +12,15 @@ class Authenticate extends Middleware
      */
     protected function redirectTo(Request $request): ?string
     {
-        // return $request->expectsJson() ? null : route('login');
-        if(!$request->expectsJson()){
-            return route('login');
-        }
+        // Este backend es SOLO API: nunca se redirige a una pantalla de login
+        // propia (el login es del front React). Devolver null hace que la
+        // falta de sesión termine en un 401 (ver Handler::unauthenticated()).
+        //
+        // Bug que había acá: el `if` sin `return` en la rama JSON hacía que la
+        // función no devolviera nada teniendo declarado `?string`, y PHP 8 lo
+        // convierte en un TypeError -> HTTP 500. Con un token vencido el front
+        // recibía 500 (o un 302 si no mandaba Accept: application/json), nunca
+        // un 401, y por eso no podía detectar la sesión vencida.
+        return null;
     }
 }

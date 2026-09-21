@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Throwable;
 
@@ -26,5 +27,18 @@ class Handler extends ExceptionHandler
         $this->reportable(function (Throwable $e) {
             //
         });
+    }
+
+    /**
+     * Sin sesión válida (token ausente, vencido o revocado): SIEMPRE 401 en
+     * JSON. El comportamiento por defecto de Laravel redirige a route('login')
+     * cuando el request no pide JSON, y acá el middleware 'json.response' corre
+     * DESPUÉS de 'auth:api', así que un fetch sin header Accept recibía un 302
+     * en vez de un 401. El front (ot-front/src/Utils/sesion.js) depende del 401
+     * para mandar al usuario al login cuando se le venció el token.
+     */
+    protected function unauthenticated($request, AuthenticationException $exception)
+    {
+        return response()->json(['message' => 'No autenticado. Iniciá sesión nuevamente.'], 401);
     }
 }

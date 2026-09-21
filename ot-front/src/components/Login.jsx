@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { tomarRetorno, esRetornoValido } from '../Utils/sesion';
 
 const APIURI = import.meta.env.VITE_API
 
@@ -9,6 +10,7 @@ const Login = () => {
     const [error, setError] = useState('');
     /*     const [successMessage, setSuccessMessage] = useState(''); */
     const navigate = useNavigate();
+    const location = useLocation();
 
     // useEffect para borrar el token al cargar el componente Login
     useEffect(() => {
@@ -47,8 +49,16 @@ const Login = () => {
             // que se evita un request y un punto de falla extra en el login.
             localStorage.setItem('user', JSON.stringify(data.user));
 
+            // Si el usuario llegó al login rebotado desde otra ruta (token vencido
+            // o link de un mail sin sesión), vuelve a ESA ruta y no a /home. El
+            // destino viene de sessionStorage (redirección con recarga, ver
+            // Utils/sesion.js) o del state del router (RutaProtegida sin recarga).
+            const retornoGuardado = tomarRetorno();
+            const desde = location.state?.desde;
+            const destino = retornoGuardado || (esRetornoValido(desde) ? desde : '/home');
+
             setTimeout(() => {
-                navigate('/home');
+                navigate(destino, { replace: true });
             }, 200);
 
         } catch (error) {

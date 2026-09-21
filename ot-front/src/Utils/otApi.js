@@ -4,6 +4,7 @@
 // localStorage vía UserAsyncStorage + APIURI de la variable de entorno VITE_API
 // (con barra final, ver .env). No se introduce axios ni ninguna librería nueva.
 import { getItem } from '../storage/UserAsyncStorage';
+import { cerrarSesionYIrAlLogin } from './sesion';
 
 const APIURI = import.meta.env.VITE_API;
 
@@ -43,16 +44,13 @@ async function apiFetch(path, options = {}) {
     }
 
     if (!response.ok) {
-        // 401: el token venció o dejó de ser válido. La barrera de RutaProtegida
-        // solo mira que EXISTA un token, así que este es el punto donde se detecta
-        // una sesión muerta: se limpia y se manda al login, para no dejar la
-        // pantalla a medio cargar sin explicación.
+        // 401: el token venció o dejó de ser válido estando ya adentro de la app
+        // (RutaProtegida lo verifica al entrar, pero puede vencer después).
         if (response.status === 401) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            if (window.location.pathname !== '/login') {
-                window.location.replace('/login');
-            }
+            // Mismo camino único que usa el interceptor global (Utils/sesion.js):
+            // limpia la sesión y va al login recordando la ruta actual para
+            // volver después de loguearse. Es idempotente.
+            cerrarSesionYIrAlLogin();
             return { ok: false, status: 401, data, error: 'Tu sesión expiró. Volvé a iniciar sesión.' };
         }
 
