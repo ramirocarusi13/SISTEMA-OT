@@ -31,6 +31,7 @@ class OpenIssueActualizacion extends Model
         'estado_nuevo',
         'archivo',
         'mime_type',
+        'item_id',
         'created_at',
     ];
 
@@ -46,5 +47,14 @@ class OpenIssueActualizacion extends Model
     public function autor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /**
+     * Item al que quedó ligada esta actualización (§10 de la spec del
+     * módulo), null si es una actualización general del issue.
+     */
+    public function item(): BelongsTo
+    {
+        return $this->belongsTo(OpenIssueItem::class, 'item_id');
     }
 }

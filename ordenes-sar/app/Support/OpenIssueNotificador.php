@@ -7,6 +7,7 @@ use App\Mail\OpenIssueMail;
 use App\Models\Notificacion;
 use App\Models\OpenIssue;
 use App\Models\OpenIssueActualizacion;
+use App\Models\OpenIssueItem;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -33,6 +34,9 @@ use Illuminate\Support\Str;
  * - reabrir()               -> notificarReapertura: TODOS los involucrados. Campana+mail (evento 'reapertura').
  * - actualizar() (edición) -> nadie (no genera campana, es ruido).
  * - fila técnica 'apertura' -> nadie (la notificación de alta es la de "te involucraron").
+ * - alta de item con responsable -> notificarResponsableAsignado()/...Lote(): SOLO el responsable,
+ *   UN aviso por operación (revisión #1: asegurarResponsableInvolucrado() ya NO notifica por su
+ *   cuenta, para no duplicar el "te involucraron" + "te asignó el item" de antes).
  *
  * El mail SIEMPRE se despacha por App\Jobs\SendHheeMailJob (job genérico
  * reusado de HHEE, cola 'database'). Nunca se llama a Mail::send()/
@@ -61,12 +65,18 @@ class OpenIssueNotificador
         self::campana(collect([$quitado]), $actor, $issue, "Te quitaron del Open Issue #{$issue->id}: " . self::titulo($issue));
     }
 
-    public static function notificarActualizacion(OpenIssue $issue, User $actor, OpenIssueActualizacion $actualizacion): void
+    /**
+     * $item: si la actualización está ligada a un item (§10.3 regla 7), el
+     * mensaje menciona el item en vez del genérico "comentó en el issue".
+     */
+    public static function notificarActualizacion(OpenIssue $issue, User $actor, OpenIssueActualizacion $actualizacion, ?OpenIssueItem $item = null): void
     {
         $esCambioEstado = $actualizacion->tipo === OpenIssueEstados::TIPO_CAMBIO_ESTADO;
 
         if ($esCambioEstado) {
             $mensaje = "{$actor->name} pasó el Open Issue #{$issue->id} a " . OpenIssueEstados::label($actualizacion->estado_nuevo);
+        } elseif ($item) {
+            $mensaje = "{$actor->name} comentó en el item «" . Str::limit($item->titulo, 80) . "» del Open Issue #{$issue->id}";
         } else {
             $mensaje = "{$actor->name} comentó en el Open Issue #{$issue->id}: " . self::titulo($issue);
         }
@@ -95,8 +105,84 @@ class OpenIssueNotificador
         } else {
             $texto = self::textoParaMail($actualizacion);
 
-            self::mail($destinatarios, $actor, 'actualizacion', fn () => new OpenIssueMail($issue, $actor, 'actualizacion', $texto));
+            self::mail($destinatarios, $actor, 'actualizacion', fn () => new OpenIssueMail($issue, $actor, 'actualizacion', $texto, null, $item));
         }
+    }
+
+    /**
+     * §10.5: alta de items en lote. Destinatarios = creador + involucrados
+     * (menos el actor). Solo campana, NO mail (no está en la lista blanca de
+     * config('open_issues.mail.eventos'): sería ruido, ya se avisa cada
+     * cambio de estado de item por separado).
+     */
+    public static function notificarItemsAgregados(OpenIssue $issue, User $actor, int $cantidad): void
+    {
+        $mensaje = "{$actor->name} agregó {$cantidad} item(s) al Open Issue #{$issue->id}: " . self::titulo($issue);
+
+        self::campana(self::involucrados($issue), $actor, $issue, $mensaje);
+    }
+
+    /**
+     * §10.5: cambio de estado de un item. Destinatarios = creador +
+     * involucrados (menos el actor). Campana + mail (evento 'item_estado').
+     */
+    public static function notificarItemEstado(OpenIssue $issue, User $actor, OpenIssueItem $item, string $estadoNuevo): void
+    {
+        $label = OpenIssueEstados::ITEM_ESTADOS_LABELS[$estadoNuevo]['label'] ?? $estadoNuevo;
+        $tituloItem = Str::limit($item->titulo, 80);
+
+        $mensaje = "{$actor->name} marcó como {$label} el item «{$tituloItem}» del Open Issue #{$issue->id}";
+
+        $destinatarios = self::involucrados($issue);
+
+        self::campana($destinatarios, $actor, $issue, $mensaje);
+
+        self::mail($destinatarios, $actor, 'item_estado', fn () => new OpenIssueMail($issue, $actor, 'item_estado', null, $label, $item));
+    }
+
+    /**
+     * §10.5: asignación de UN item a un responsable. Destinatario = SOLO el
+     * responsable (nunca si es el propio actor, filtrado por
+     * destinatariosUnicos() como el resto). Campana + mail, reutilizando el
+     * evento 'involucrado' (ya está en la lista blanca) con encabezado
+     * propio (ver App\Mail\OpenIssueMail).
+     *
+     * Ver notificarResponsableAsignadoLote() (revisión #5) para cuando al
+     * mismo responsable le tocan VARIOS items en la misma operación (alta en
+     * lote): ese caso manda un único aviso agrupado en vez de uno por item.
+     */
+    public static function notificarResponsableAsignado(OpenIssue $issue, User $actor, OpenIssueItem $item, User $responsable): void
+    {
+        $tituloItem = Str::limit($item->titulo, 80);
+        $mensaje = "{$actor->name} te asignó el item «{$tituloItem}» del Open Issue #{$issue->id}";
+
+        $destinatarios = collect([$responsable]);
+
+        self::campana($destinatarios, $actor, $issue, $mensaje);
+
+        self::mail($destinatarios, $actor, 'involucrado', fn () => new OpenIssueMail($issue, $actor, 'involucrado', null, null, $item));
+    }
+
+    /**
+     * Revisión #5: alta en lote (POST /{id}/items o items[] del alta del
+     * issue) que asigna MÁS de un item al MISMO responsable en la misma
+     * operación: un único aviso agrupado con el total, en vez de una
+     * notificación por item (con 3 items al mismo responsable evitaba 3
+     * mails). Reutiliza el evento 'involucrado' igual que la variante
+     * singular, sin $item (ver App\Mail\OpenIssueMail::$cantidadItems).
+     *
+     * @param \Illuminate\Support\Collection<int, OpenIssueItem> $items
+     */
+    public static function notificarResponsableAsignadoLote(OpenIssue $issue, User $actor, Collection $items, User $responsable): void
+    {
+        $n = $items->count();
+        $mensaje = "{$actor->name} te asignó {$n} items del Open Issue #{$issue->id}: " . self::titulo($issue);
+
+        $destinatarios = collect([$responsable]);
+
+        self::campana($destinatarios, $actor, $issue, $mensaje);
+
+        self::mail($destinatarios, $actor, 'involucrado', fn () => new OpenIssueMail($issue, $actor, 'involucrado', null, null, null, $n));
     }
 
     public static function notificarCierre(OpenIssue $issue, User $actor, string $estadoAnterior, ?string $texto = null): void

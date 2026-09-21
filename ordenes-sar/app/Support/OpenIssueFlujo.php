@@ -6,6 +6,7 @@ use App\Models\Departamento;
 use App\Models\OpenIssue;
 use App\Models\OpenIssueActualizacion;
 use App\Models\OpenIssueInvolucrado;
+use App\Models\OpenIssueItem;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -75,7 +76,9 @@ class OpenIssueFlujo
 
     /**
      * $datos: titulo, descripcion?, departamento_destino_id, prioridad?,
-     * involucrados_ids?, departamentos_ids?, texto_inicial?.
+     * involucrados_ids?, departamentos_ids?, texto_inicial?, items? (§10.3:
+     * array de hasta config('open_issues.max_items_por_issue') objetos
+     * titulo/detalle?/responsable_id?).
      *
      * $adjunto: ['archivo' => ?string, 'mime_type' => ?string], YA guardado
      * en disco por el controller con App\Support\ArchivoOrden::store(). Este
@@ -113,6 +116,14 @@ class OpenIssueFlujo
             );
 
             self::registrarActualizacion($issue, $actor, OpenIssueEstados::TIPO_APERTURA, null, null, OpenIssueEstados::ABIERTO);
+
+            // §10.3 regla 3: items opcionales en el alta. Va DESPUÉS de la fila
+            // 'apertura' (que siempre encabeza el timeline) y ANTES del
+            // comentario inicial, para que el orden cronológico del timeline
+            // tenga sentido.
+            if (!empty($datos['items'])) {
+                self::procesarAltaItems($issue, $datos['items'], $actor);
+            }
 
             if (!empty($datos['texto_inicial']) || !empty($adjunto['archivo'])) {
                 self::registrarActualizacion(
@@ -192,7 +203,8 @@ class OpenIssueFlujo
     // =========================================================================
 
     /**
-     * $datos: texto?, nuevo_estado?.
+     * $datos: texto?, nuevo_estado?, item_id? (§10.3 regla 7: si viene, tiene
+     * que pertenecer a este issue, si no 422).
      */
     public static function agregarActualizacion(OpenIssue $issue, array $datos, User $actor, array $adjunto = []): OpenIssueActualizacion
     {
@@ -202,6 +214,18 @@ class OpenIssueFlujo
             $actual = self::conLock($issue);
 
             self::asegurarNoCerrado($actual, 'El issue está cerrado: reabrilo para poder agregar actualizaciones.');
+
+            $item = null;
+
+            if (!empty($datos['item_id'])) {
+                $item = $actual->items()->where('id', $datos['item_id'])->first();
+
+                if (!$item) {
+                    throw ValidationException::withMessages([
+                        'item_id' => 'El item no pertenece a este issue.',
+                    ]);
+                }
+            }
 
             $texto = trim((string) ($datos['texto'] ?? '')) ?: null;
             $nuevoEstado = $datos['nuevo_estado'] ?? null;
@@ -235,9 +259,11 @@ class OpenIssueFlujo
                 $tipo = OpenIssueEstados::TIPO_CAMBIO_ESTADO;
             }
 
-            $act = self::registrarActualizacion($actual, $actor, $tipo, $texto, $estadoAnterior, $nuevoEstado, $adjunto);
+            $itemId = $item?->id;
 
-            OpenIssueNotificador::notificarActualizacion($actual, $actor, $act);
+            $act = self::registrarActualizacion($actual, $actor, $tipo, $texto, $estadoAnterior, $nuevoEstado, $adjunto, $itemId);
+
+            OpenIssueNotificador::notificarActualizacion($actual, $actor, $act, $item);
 
             return $act;
         });
@@ -481,6 +507,8 @@ class OpenIssueFlujo
 
     /**
      * Registra una fila en el timeline append-only oi_actualizaciones.
+     * $itemId liga la fila a un item (§10: comentario/cambio de estado/
+     * edición de item), null para actualizaciones generales del issue.
      */
     private static function registrarActualizacion(
         OpenIssue $issue,
@@ -489,7 +517,8 @@ class OpenIssueFlujo
         ?string $texto = null,
         ?string $estadoAnterior = null,
         ?string $estadoNuevo = null,
-        array $adjunto = []
+        array $adjunto = [],
+        ?int $itemId = null
     ): OpenIssueActualizacion {
         return OpenIssueActualizacion::create([
             'issue_id' => $issue->id,
@@ -500,7 +529,314 @@ class OpenIssueFlujo
             'estado_nuevo' => $estadoNuevo,
             'archivo' => $adjunto['archivo'] ?? null,
             'mime_type' => $adjunto['mime_type'] ?? null,
+            'item_id' => $itemId,
             'created_at' => now(),
         ]);
+    }
+
+    // =========================================================================
+    // Items (§10 de la spec del módulo)
+    // =========================================================================
+
+    /**
+     * Alta de uno o varios items en un issue (§10.3 reglas 1-4). Requiere
+     * poder escribir en el issue y que no esté cerrado. Cada item con
+     * responsable_id que todavía no es involucrado queda agregado como tal
+     * (origen='manual') y es notificado de la asignación.
+     *
+     * @param array $items cada uno: ['titulo' => string, 'detalle' => ?string, 'responsable_id' => ?int]
+     */
+    public static function agregarItems(OpenIssue $issue, array $items, User $actor): OpenIssue
+    {
+        self::asegurarPuedeEscribir($issue, $actor);
+
+        return DB::transaction(function () use ($issue, $items, $actor) {
+            $actual = self::conLock($issue);
+
+            self::asegurarNoCerrado($actual, 'No se pueden agregar items a un issue cerrado.');
+
+            self::procesarAltaItems($actual, $items, $actor);
+
+            return $actual->fresh();
+        });
+    }
+
+    /**
+     * Edición de titulo/detalle/responsable_id de un item existente (§10.3
+     * regla 8). Solo campos presentes en $datos se tocan (array_key_exists,
+     * mismo patrón que actualizar()); responsable_id=null lo desasigna.
+     * Registra 'item_editado' solo si algo cambió; si el responsable cambia
+     * a un id nuevo, lo asegura involucrado y lo notifica (no notifica nada
+     * más, §10.3: "No notifica, salvo al nuevo responsable").
+     */
+    public static function editarItem(OpenIssue $issue, OpenIssueItem $item, array $datos, User $actor): OpenIssue
+    {
+        self::asegurarPuedeEscribir($issue, $actor);
+
+        return DB::transaction(function () use ($issue, $item, $datos, $actor) {
+            $actual = self::conLock($issue);
+
+            self::asegurarNoCerrado($actual, 'No se puede editar un item de un issue cerrado.');
+
+            // Relee el item DENTRO de la transacción (el lock serializa por
+            // issue, mismo criterio que el resto de OpenIssueFlujo: no hace
+            // falta un lockForUpdate propio del item).
+            $itemActual = $actual->items()->where('id', $item->id)->firstOrFail();
+
+            $camposLabels = [
+                'titulo' => 'título',
+                'detalle' => 'detalle',
+                'responsable_id' => 'responsable',
+            ];
+
+            $cambios = [];
+
+            foreach ($camposLabels as $campo => $label) {
+                if (!array_key_exists($campo, $datos)) {
+                    continue;
+                }
+
+                if ((string) $itemActual->{$campo} !== (string) $datos[$campo]) {
+                    $cambios[] = $label;
+                }
+            }
+
+            $responsableAnteriorId = $itemActual->responsable_id;
+
+            $itemActual->update([
+                'titulo' => $datos['titulo'] ?? $itemActual->titulo,
+                'detalle' => array_key_exists('detalle', $datos) ? $datos['detalle'] : $itemActual->detalle,
+                'responsable_id' => array_key_exists('responsable_id', $datos) ? $datos['responsable_id'] : $itemActual->responsable_id,
+            ]);
+
+            if (!empty($cambios)) {
+                self::registrarActualizacion(
+                    $actual,
+                    $actor,
+                    OpenIssueEstados::TIPO_ITEM_EDITADO,
+                    'Editó item «' . Str::limit($itemActual->titulo, 80) . '»: ' . implode(', ', $cambios),
+                    null,
+                    null,
+                    [],
+                    $itemActual->id
+                );
+            }
+
+            $nuevoResponsableId = $itemActual->responsable_id;
+
+            if ($nuevoResponsableId && (int) $nuevoResponsableId !== (int) $responsableAnteriorId) {
+                self::asegurarResponsableInvolucrado($actual, (int) $nuevoResponsableId, $actor);
+
+                $responsable = User::find($nuevoResponsableId);
+
+                if ($responsable) {
+                    OpenIssueNotificador::notificarResponsableAsignado($actual, $actor, $itemActual, $responsable);
+                }
+            }
+
+            return $actual->fresh();
+        });
+    }
+
+    /**
+     * Cambia el estado de un item (§10.3 regla 5) y, si corresponde, hace
+     * avanzar el issue (regla 6): cualquier transición entre estados de item
+     * es válida salvo quedarse en el mismo estado (422).
+     */
+    public static function cambiarEstadoItem(OpenIssue $issue, OpenIssueItem $item, string $nuevoEstado, ?string $texto, User $actor): OpenIssue
+    {
+        self::asegurarPuedeEscribir($issue, $actor);
+
+        return DB::transaction(function () use ($issue, $item, $nuevoEstado, $texto, $actor) {
+            $actual = self::conLock($issue);
+
+            self::asegurarNoCerrado($actual, 'No se puede cambiar el estado de un item de un issue cerrado.');
+
+            $itemActual = $actual->items()->where('id', $item->id)->firstOrFail();
+
+            if ($nuevoEstado === $itemActual->estado) {
+                throw ValidationException::withMessages([
+                    'estado' => 'El item ya está en ese estado.',
+                ]);
+            }
+
+            $estadoAnterior = $itemActual->estado;
+
+            $datosUpdate = ['estado' => $nuevoEstado];
+
+            if (OpenIssueEstados::itemEsResuelto($nuevoEstado)) {
+                $datosUpdate['resuelto_por_id'] = $actor->id;
+                $datosUpdate['fecha_resuelto'] = now();
+            } else {
+                // Volvió a pendiente/en_progreso: limpia el rastro de resolución previo.
+                $datosUpdate['resuelto_por_id'] = null;
+                $datosUpdate['fecha_resuelto'] = null;
+            }
+
+            $itemActual->update($datosUpdate);
+
+            self::registrarActualizacion(
+                $actual,
+                $actor,
+                OpenIssueEstados::TIPO_ITEM_ESTADO,
+                $texto,
+                $estadoAnterior,
+                $nuevoEstado,
+                [],
+                $itemActual->id
+            );
+
+            // Regla 6: si el issue sigue 'abierto' y el item avanza a en_progreso
+            // o hecho, el issue pasa SOLO a en_progreso. Nunca se cierra solo: el
+            // cierre siempre es una acción explícita (POST /{id}/cerrar).
+            if (
+                $actual->estado === OpenIssueEstados::ABIERTO
+                && in_array($nuevoEstado, [OpenIssueEstados::ITEM_EN_PROGRESO, OpenIssueEstados::ITEM_HECHO], true)
+            ) {
+                $actual->update(['estado' => OpenIssueEstados::EN_PROGRESO]);
+
+                self::registrarActualizacion(
+                    $actual,
+                    $actor,
+                    OpenIssueEstados::TIPO_CAMBIO_ESTADO,
+                    'Pasó a En progreso por avance en un item.',
+                    OpenIssueEstados::ABIERTO,
+                    OpenIssueEstados::EN_PROGRESO
+                );
+            }
+
+            OpenIssueNotificador::notificarItemEstado($actual, $actor, $itemActual, $nuevoEstado);
+
+            return $actual->fresh();
+        });
+    }
+
+    /**
+     * Inserta las filas de oi_items en orden correlativo (§10.3 regla 3),
+     * validando el tope acumulado del issue. NO registra la fila
+     * 'item_agregado' ni notifica el lote completo: eso lo hace
+     * procesarAltaItems() una sola vez con el total. Los avisos de
+     * responsable asignado se resuelven agrupados, ver
+     * notificarResponsablesDelLote() (revisión #5).
+     *
+     * @param array $items cada uno: ['titulo' => string, 'detalle' => ?string, 'responsable_id' => ?int]
+     * @return OpenIssueItem[]
+     */
+    private static function insertarItems(OpenIssue $issue, array $items, User $actor): array
+    {
+        $totalActual = $issue->items()->count();
+
+        if ($totalActual + count($items) > config('open_issues.max_items_por_issue', 50)) {
+            throw ValidationException::withMessages([
+                'items' => 'Se alcanzó el máximo de items permitidos para este issue.',
+            ]);
+        }
+
+        $orden = (int) ($issue->items()->max('orden') ?? 0);
+        $creados = [];
+
+        foreach ($items as $datosItem) {
+            $orden++;
+
+            $creados[] = OpenIssueItem::create([
+                'issue_id' => $issue->id,
+                'titulo' => $datosItem['titulo'],
+                'detalle' => $datosItem['detalle'] ?? null,
+                'estado' => OpenIssueEstados::ITEM_PENDIENTE,
+                'responsable_id' => $datosItem['responsable_id'] ?? null,
+                'creado_por_id' => $actor->id,
+                'orden' => $orden,
+            ]);
+        }
+
+        self::notificarResponsablesDelLote($issue, $creados, $actor);
+
+        return $creados;
+    }
+
+    /**
+     * Revisión #5: dedupe de responsable_id del lote recién creado (un solo
+     * whereIn en vez de un User::find() por item), un solo
+     * asegurarResponsableInvolucrado() por responsable (no por item, evita
+     * consultas/inserts repetidos si el mismo responsable aparece en varios
+     * items del lote) y UN aviso agrupado por responsable: singular si le
+     * tocó 1 item de esta operación, plural con el total si le tocaron
+     * varios (en vez de una notificación por item).
+     *
+     * @param OpenIssueItem[] $items
+     */
+    private static function notificarResponsablesDelLote(OpenIssue $issue, array $items, User $actor): void
+    {
+        $itemsConResponsable = collect($items)->filter(fn (OpenIssueItem $item) => !empty($item->responsable_id));
+
+        if ($itemsConResponsable->isEmpty()) {
+            return;
+        }
+
+        $porResponsable = $itemsConResponsable->groupBy(fn (OpenIssueItem $item) => (int) $item->responsable_id);
+
+        $responsables = User::whereIn('id', $porResponsable->keys())->get()->keyBy('id');
+
+        foreach ($porResponsable as $responsableId => $itemsDelResponsable) {
+            $responsable = $responsables->get($responsableId);
+
+            if (!$responsable) {
+                continue;
+            }
+
+            self::asegurarResponsableInvolucrado($issue, (int) $responsableId, $actor);
+
+            if ($itemsDelResponsable->count() === 1) {
+                OpenIssueNotificador::notificarResponsableAsignado($issue, $actor, $itemsDelResponsable->first(), $responsable);
+            } else {
+                OpenIssueNotificador::notificarResponsableAsignadoLote($issue, $actor, $itemsDelResponsable, $responsable);
+            }
+        }
+    }
+
+    /**
+     * Inserta los items y, si se creó al menos uno, registra la fila de
+     * timeline 'item_agregado' (una sola por lote, con el total) y notifica.
+     *
+     * @return OpenIssueItem[]
+     */
+    private static function procesarAltaItems(OpenIssue $issue, array $items, User $actor): array
+    {
+        $creados = self::insertarItems($issue, $items, $actor);
+
+        if (!empty($creados)) {
+            $n = count($creados);
+            $texto = $n === 1 ? 'Agregó 1 item.' : "Agregó {$n} items.";
+
+            self::registrarActualizacion($issue, $actor, OpenIssueEstados::TIPO_ITEM_AGREGADO, $texto);
+
+            OpenIssueNotificador::notificarItemsAgregados($issue, $actor, $n);
+        }
+
+        return $creados;
+    }
+
+    /**
+     * Agrega $responsableId como involucrado si todavía no lo es (reutiliza
+     * insertarInvolucrados(), §10.3 regla 4), registrando su
+     * 'involucrado_agregado' SOLO si efectivamente se insertó (si ya estaba
+     * involucrado, no hace nada).
+     *
+     * Revisión #1: a propósito NO notifica acá. Antes disparaba
+     * notificarInvolucradosAgregados() ("Te involucraron...") Y el caller
+     * disparaba notificarResponsableAsignado()/...Lote() ("te asignó el
+     * item..."): dos campanas + dos mails para una sola asignación. La
+     * spec §10.5 define UN solo aviso ("te asignó el item"); ese aviso lo
+     * manda siempre el caller, se haya insertado la fila de involucrado o no.
+     */
+    private static function asegurarResponsableInvolucrado(OpenIssue $issue, int $responsableId, User $actor): void
+    {
+        $r = self::insertarInvolucrados($issue, [$responsableId], [], $actor);
+
+        if (!empty($r['agregados'])) {
+            $nombre = $r['agregados_users']->first()->name ?? 'un usuario';
+
+            self::registrarActualizacion($issue, $actor, OpenIssueEstados::TIPO_INVOLUCRADO_AGREGADO, "Involucró a: {$nombre}");
+        }
     }
 }

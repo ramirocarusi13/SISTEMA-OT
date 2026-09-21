@@ -62,6 +62,11 @@ class OpenIssueEstados
     public const TIPO_INVOLUCRADO_QUITADO = 'involucrado_quitado';
     public const TIPO_EDICION = 'edicion';
 
+    // §10.2: tipos de actualización que agrega el módulo de items.
+    public const TIPO_ITEM_AGREGADO = 'item_agregado';
+    public const TIPO_ITEM_ESTADO = 'item_estado';
+    public const TIPO_ITEM_EDITADO = 'item_editado';
+
     public const TIPOS_ACTUALIZACION_LABELS = [
         self::TIPO_APERTURA => 'Apertura',
         self::TIPO_COMENTARIO => 'Comentario',
@@ -71,6 +76,27 @@ class OpenIssueEstados
         self::TIPO_INVOLUCRADO_AGREGADO => 'Involucrado agregado',
         self::TIPO_INVOLUCRADO_QUITADO => 'Involucrado quitado',
         self::TIPO_EDICION => 'Edición',
+        self::TIPO_ITEM_AGREGADO => 'Item agregado',
+        self::TIPO_ITEM_ESTADO => 'Estado de item',
+        self::TIPO_ITEM_EDITADO => 'Item editado',
+    ];
+
+    // =========================================================================
+    // Items (oi_items.estado, §10 de la spec del módulo)
+    // =========================================================================
+
+    public const ITEM_PENDIENTE = 'pendiente';
+    public const ITEM_EN_PROGRESO = 'en_progreso';
+    public const ITEM_HECHO = 'hecho';
+    public const ITEM_DESCARTADO = 'descartado';
+
+    // Colores de Tag de antd. Cualquier transición entre estados de item es
+    // válida salvo quedarse en el mismo (eso lo valida OpenIssueFlujo::cambiarEstadoItem()).
+    public const ITEM_ESTADOS_LABELS = [
+        self::ITEM_PENDIENTE => ['label' => 'Pendiente', 'color' => 'default'],
+        self::ITEM_EN_PROGRESO => ['label' => 'En progreso', 'color' => 'blue'],
+        self::ITEM_HECHO => ['label' => 'Hecho', 'color' => 'green'],
+        self::ITEM_DESCARTADO => ['label' => 'Descartado', 'color' => 'red'],
     ];
 
     /**
@@ -151,5 +177,41 @@ class OpenIssueEstados
     public static function label(string $estado): string
     {
         return self::ESTADOS_LABELS[$estado]['label'] ?? $estado;
+    }
+
+    // =========================================================================
+    // Items (§10 de la spec del módulo)
+    // =========================================================================
+
+    /**
+     * Lista de los 4 estados de item válidos (para Rule::in()).
+     *
+     * @return string[]
+     */
+    public static function itemEstados(): array
+    {
+        return array_keys(self::ITEM_ESTADOS_LABELS);
+    }
+
+    /**
+     * Catálogo estado de item -> {value, label, color} para el front.
+     */
+    public static function catalogoItemEstados(): array
+    {
+        return collect(self::ITEM_ESTADOS_LABELS)->map(fn ($info, $estado) => [
+            'value' => $estado,
+            'label' => $info['label'],
+            'color' => $info['color'],
+        ])->values()->all();
+    }
+
+    /**
+     * True si un item en $estado ya está "resuelto" (hecho o descartado): en
+     * ese caso OpenIssueFlujo::cambiarEstadoItem() setea resuelto_por_id/
+     * fecha_resuelto; al volver a pendiente/en_progreso los limpia.
+     */
+    public static function itemEsResuelto(string $estado): bool
+    {
+        return in_array($estado, [self::ITEM_HECHO, self::ITEM_DESCARTADO], true);
     }
 }

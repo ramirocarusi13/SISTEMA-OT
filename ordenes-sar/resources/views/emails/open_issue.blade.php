@@ -14,6 +14,10 @@
     <p><strong>Estado:</strong> {{ $estadoLabel }}</p>
     <p><strong>Creado por:</strong> {{ $issue->creador->name ?? 'N/D' }}</p>
 
+    @if($item)
+        <p><strong>Item:</strong> {{ $item->titulo }}</p>
+    @endif
+
     @if($texto)
         <p><strong>Comentario:</strong></p>
         <p>{!! nl2br(e($texto)) !!}</p>

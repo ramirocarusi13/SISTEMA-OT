@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Departamento;
 use App\Models\OpenIssue;
+use App\Models\OpenIssueItem;
 use App\Models\User;
 use App\Support\AlcanceOpenIssues;
 use App\Support\ArchivoOrden;
@@ -37,10 +38,14 @@ class OpenIssueController extends Controller
             'estados' => OpenIssueEstados::catalogo(),
             'prioridades' => OpenIssueEstados::catalogoPrioridades(),
             'tipos_actualizacion' => OpenIssueEstados::TIPOS_ACTUALIZACION_LABELS,
+            'item_estados' => OpenIssueEstados::catalogoItemEstados(),
             'departamentos' => Departamento::query()->select('id', 'nombre')->orderBy('nombre')->get(),
             'usuarios' => User::query()->select('id', 'name', 'departamento_id')->orderBy('name')->get(),
             'prioridad_default' => config('open_issues.prioridad_default'),
             'adjunto' => config('open_issues.adjunto'),
+            // Revisión #9: tope de items por issue, para que el front pueda
+            // deshabilitar "+ Agregar item" / avisar antes de pegar contra el 422.
+            'max_items' => (int) config('open_issues.max_items_por_issue'),
             'flags' => [
                 'es_gerente' => $user->rol === 'gerente',
                 'puede_ver_todos' => AlcanceOpenIssues::veTodos($user),
@@ -71,9 +76,8 @@ class OpenIssueController extends Controller
             // Total real (no cerrados donde participo), independiente del limit(50) de abajo.
             $total = (clone $query)->count();
 
-            $query->with(['creador:id,name', 'departamentoDestino:id,nombre', 'involucrados.usuario:id,name'])
-                ->withCount(['involucrados', 'actualizaciones'])
-                ->withMax('actualizaciones', 'created_at');
+            $query->with(['creador:id,name', 'departamentoDestino:id,nombre', 'involucrados.usuario:id,name']);
+            $this->conCountsListado($query);
 
             $issues = $query->orderBy('created_at', 'desc')->orderBy('id', 'desc')->limit(50)->get();
 
@@ -117,9 +121,8 @@ class OpenIssueController extends Controller
                 'creador:id,name',
                 'departamentoDestino:id,nombre',
                 'involucrados.usuario:id,name',
-            ])
-                ->withCount(['involucrados', 'actualizaciones'])
-                ->withMax('actualizaciones', 'created_at');
+            ]);
+            $this->conCountsListado($query);
 
             $query = AlcanceOpenIssues::aplicar($query, $user);
 
@@ -187,6 +190,13 @@ class OpenIssueController extends Controller
             'departamentos_ids.*' => 'integer|distinct|exists:departamentos,id',
             'texto_inicial' => 'nullable|string|max:4000',
             'archivo' => 'nullable|file|mimes:jpeg,png,jpg,gif,svg,pdf,doc,docx,xls,xlsx|max:5120',
+            // §10.3 regla 3: items opcionales en el alta. Llega tal cual por
+            // JSON o, en multipart/FormData, como 'items[0][titulo]', etc.
+            // (Laravel parsea ambos formatos al mismo array anidado).
+            'items' => 'nullable|array|max:' . config('open_issues.max_items_por_issue', 50),
+            'items.*.titulo' => 'required|string|max:300',
+            'items.*.detalle' => 'nullable|string|max:2000',
+            'items.*.responsable_id' => 'nullable|integer|exists:users,id',
         ]);
 
         try {
@@ -265,6 +275,11 @@ class OpenIssueController extends Controller
             'texto' => 'nullable|string|max:4000',
             'nuevo_estado' => ['nullable', 'string', Rule::in(OpenIssueEstados::ESTADOS_MANUALES)],
             'archivo' => 'nullable|file|mimes:jpeg,png,jpg,gif,svg,pdf,doc,docx,xls,xlsx|max:5120',
+            // §10.3 regla 7: item opcional al que queda ligada la actualización.
+            // Solo valida que exista ALGÚN item con ese id; que pertenezca a
+            // ESTE issue lo revalida OpenIssueFlujo::agregarActualizacion() (422
+            // 'item_id' si no).
+            'item_id' => 'nullable|integer|exists:oi_items,id',
         ]);
 
         try {
@@ -420,6 +435,142 @@ class OpenIssueController extends Controller
     }
 
     // =========================================================================
+    // Items (§10 de la spec del módulo)
+    // =========================================================================
+
+    /**
+     * Alta de uno o varios items (§10.4). 'items' es siempre un array (aunque
+     * sea un único item) para no duplicar la validación con store().
+     */
+    public function storeItems(Request $request, $id)
+    {
+        $validado = $request->validate([
+            'items' => 'required|array|min:1|max:' . config('open_issues.max_items_por_issue', 50),
+            'items.*.titulo' => 'required|string|max:300',
+            'items.*.detalle' => 'nullable|string|max:2000',
+            'items.*.responsable_id' => 'nullable|integer|exists:users,id',
+        ]);
+
+        try {
+            $issue = OpenIssue::findOrFail($id);
+            $user = auth()->user();
+
+            $issue = OpenIssueFlujo::agregarItems($issue, $validado['items'], $user);
+
+            return response()->json($this->detalle($issue->load($this->eagerLoadDetalle()), $user), 201);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['error' => 'Issue no encontrado'], 404);
+        } catch (OpenIssueAutorizacionException $e) {
+            return response()->json(['error' => $e->getMessage()], 403);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('Error agregando items del Open Issue: ' . $e->getMessage());
+            return response()->json(['error' => 'Error agregando items del issue'], 500);
+        }
+    }
+
+    /**
+     * Edición de titulo/detalle/responsable_id de un item (§10.3 regla 8).
+     * 404 si el item no pertenece a este issue.
+     *
+     * Revisión #4: 'titulo' es 'sometimes|required' (no 'nullable'): si la
+     * clave viene, tiene que traer un string no vacío. Con 'nullable' un
+     * {"titulo": null} o "" (que ConvertEmptyStringsToNull pasa a null)
+     * pasaba la validación, OpenIssueFlujo::editarItem() detectaba "cambió
+     * el título" (comparaba contra null) pero no cambiaba nada, y quedaba
+     * una fila 'item_editado' mentirosa en el timeline append-only.
+     */
+    public function updateItem(Request $request, $id, $itemId)
+    {
+        $validado = $request->validate([
+            'titulo' => 'sometimes|required|string|max:300',
+            'detalle' => 'nullable|string|max:2000',
+            'responsable_id' => 'nullable|integer|exists:users,id',
+        ]);
+
+        try {
+            $issue = OpenIssue::findOrFail($id);
+            $user = auth()->user();
+
+            // Orden obligatorio (revisión #6, mismo patrón que
+            // storeActualizacion): autorización ANTES de resolver el item,
+            // para que un usuario sin alcance reciba siempre 403 y no pueda
+            // distinguir por 404/403 a qué issue pertenece un item.
+            OpenIssueFlujo::asegurarPuedeEscribir($issue, $user);
+
+            $item = $this->encontrarItemDelIssue($issue, $itemId);
+
+            if (!$item) {
+                return response()->json(['error' => 'Item no encontrado'], 404);
+            }
+
+            $issue = OpenIssueFlujo::editarItem($issue, $item, $validado, $user);
+
+            return response()->json($this->detalle($issue->load($this->eagerLoadDetalle()), $user));
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['error' => 'Issue no encontrado'], 404);
+        } catch (OpenIssueAutorizacionException $e) {
+            return response()->json(['error' => $e->getMessage()], 403);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('Error editando item del Open Issue: ' . $e->getMessage());
+            return response()->json(['error' => 'Error editando el item'], 500);
+        }
+    }
+
+    /**
+     * Cambio de estado de un item (§10.3 regla 5). 404 si el item no
+     * pertenece a este issue.
+     */
+    public function storeItemEstado(Request $request, $id, $itemId)
+    {
+        $validado = $request->validate([
+            'estado' => ['required', 'string', Rule::in(OpenIssueEstados::itemEstados())],
+            'texto' => 'nullable|string|max:4000',
+        ]);
+
+        try {
+            $issue = OpenIssue::findOrFail($id);
+            $user = auth()->user();
+
+            // Revisión #6: mismo orden que updateItem(): autorización antes
+            // de resolver el item, para no filtrar por 404/403 a qué issue
+            // pertenece un item.
+            OpenIssueFlujo::asegurarPuedeEscribir($issue, $user);
+
+            $item = $this->encontrarItemDelIssue($issue, $itemId);
+
+            if (!$item) {
+                return response()->json(['error' => 'Item no encontrado'], 404);
+            }
+
+            $issue = OpenIssueFlujo::cambiarEstadoItem($issue, $item, $validado['estado'], $validado['texto'] ?? null, $user);
+
+            return response()->json($this->detalle($issue->load($this->eagerLoadDetalle()), $user));
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['error' => 'Issue no encontrado'], 404);
+        } catch (OpenIssueAutorizacionException $e) {
+            return response()->json(['error' => $e->getMessage()], 403);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('Error cambiando el estado del item del Open Issue: ' . $e->getMessage());
+            return response()->json(['error' => 'Error cambiando el estado del item'], 500);
+        }
+    }
+
+    /**
+     * Item por id que pertenezca a $issue, o null (§10.4: "itemId que no
+     * pertenece al issue -> 404").
+     */
+    private function encontrarItemDelIssue(OpenIssue $issue, $itemId): ?OpenIssueItem
+    {
+        return $issue->items()->where('id', $itemId)->first();
+    }
+
+    // =========================================================================
     // Helpers privados: shapes exactos (§4.3)
     // =========================================================================
 
@@ -452,7 +603,31 @@ class OpenIssueController extends Controller
             'involucrados.departamento:id,nombre',
             'involucrados.agregadoPor:id,name',
             'actualizaciones.autor:id,name',
+            // §10.4: actualizaciones.item para el chip "item" del timeline, sin N+1.
+            'actualizaciones.item:id,titulo',
+            // §10.4: items con su propio contador de actualizaciones y última
+            // fecha (withCount/withMax, sin cargar las filas completas).
+            'items' => fn ($q) => $q->withCount('actualizaciones')->withMax('actualizaciones', 'created_at'),
+            'items.responsable:id,name',
+            'items.creadoPor:id,name',
+            'items.resueltoPor:id,name',
         ];
+    }
+
+    /**
+     * withCount/withMax compartidos por index() y pendientes(): counts
+     * "chatos" (involucrados, actualizaciones) + counts FILTRADOS de items
+     * (items_total excluye descartados, items_hechos = solo 'hecho'), todo en
+     * una sola query, sin N+1 (§10.4).
+     */
+    private function conCountsListado($query): void
+    {
+        $query->withCount([
+            'involucrados',
+            'actualizaciones',
+            'items as items_total' => fn ($q) => $q->where('estado', '!=', OpenIssueEstados::ITEM_DESCARTADO),
+            'items as items_hechos' => fn ($q) => $q->where('estado', OpenIssueEstados::ITEM_HECHO),
+        ])->withMax('actualizaciones', 'created_at');
     }
 
     /**
@@ -474,6 +649,9 @@ class OpenIssueController extends Controller
             'creador' => $i->creador ? ['id' => $i->creador->id, 'name' => $i->creador->name] : null,
             'involucrados_count' => $i->involucrados_count,
             'actualizaciones_count' => $i->actualizaciones_count,
+            // §10.4: withCount filtrado (ver index()/pendientes()), sin N+1.
+            'items_total' => $i->items_total ?? 0,
+            'items_hechos' => $i->items_hechos ?? 0,
             'involucrados_preview' => $i->involucrados->take(5)->map(fn ($inv) => [
                 'id' => $inv->user_id,
                 'name' => $inv->usuario->name ?? null,
@@ -537,6 +715,9 @@ class OpenIssueController extends Controller
                 ];
             })->values(),
             'actualizaciones' => $i->actualizaciones->map(fn ($a) => $this->actualizacionArray($a))->values(),
+            // §10.4: items del issue (orden, orden->id) + su progreso agregado.
+            'items' => $i->items->map(fn ($item) => $this->itemArray($item))->values(),
+            'progreso' => $this->progresoItems($i->items),
             'flags' => $flags,
         ];
     }
@@ -555,6 +736,58 @@ class OpenIssueController extends Controller
             'mime_type' => $a->mime_type,
             'created_at' => optional($a->created_at)->toJSON(),
             'autor' => $a->autor ? ['id' => $a->autor->id, 'name' => $a->autor->name] : null,
+            'item_id' => $a->item_id,
+            'item' => $a->item ? ['id' => $a->item->id, 'titulo' => $a->item->titulo] : null,
+        ];
+    }
+
+    /**
+     * Item de items[] del detalle (§10.4). $item viene con
+     * withCount('actualizaciones')/withMax('actualizaciones', 'created_at')
+     * ya resueltos por eagerLoadDetalle(), sin N+1.
+     */
+    private function itemArray(OpenIssueItem $item): array
+    {
+        return [
+            'id' => $item->id,
+            'titulo' => $item->titulo,
+            'detalle' => $item->detalle,
+            'estado' => $item->estado,
+            'estado_label' => OpenIssueEstados::ITEM_ESTADOS_LABELS[$item->estado]['label'] ?? $item->estado,
+            'estado_color' => OpenIssueEstados::ITEM_ESTADOS_LABELS[$item->estado]['color'] ?? 'default',
+            'orden' => $item->orden,
+            'responsable' => $item->responsable ? ['id' => $item->responsable->id, 'name' => $item->responsable->name] : null,
+            'creado_por' => $item->creadoPor ? ['id' => $item->creadoPor->id, 'name' => $item->creadoPor->name] : null,
+            'resuelto_por' => $item->resueltoPor ? ['id' => $item->resueltoPor->id, 'name' => $item->resueltoPor->name] : null,
+            'fecha_resuelto' => optional($item->fecha_resuelto)->toJSON(),
+            'actualizaciones_count' => $item->actualizaciones_count ?? 0,
+            'ultima_actualizacion_at' => $this->fechaIso($item->actualizaciones_max_created_at ?? null),
+            'created_at' => optional($item->created_at)->toJSON(),
+        ];
+    }
+
+    /**
+     * progreso del detalle (§10.4): 'total' excluye descartados;
+     * 'porcentaje' redondeado; 'completo' = hay al menos 1 item y todos los
+     * no-descartados están 'hecho' (el front lo usa para sugerir cerrar,
+     * §10.3 regla 6: NUNCA cierra solo).
+     *
+     * @param \Illuminate\Support\Collection $items
+     */
+    private function progresoItems($items): array
+    {
+        $noDescartados = $items->where('estado', '!=', OpenIssueEstados::ITEM_DESCARTADO);
+        $total = $noDescartados->count();
+        $hechos = $noDescartados->where('estado', OpenIssueEstados::ITEM_HECHO)->count();
+
+        return [
+            'total' => $total,
+            'hechos' => $hechos,
+            'descartados' => $items->where('estado', OpenIssueEstados::ITEM_DESCARTADO)->count(),
+            'pendientes' => $noDescartados->where('estado', OpenIssueEstados::ITEM_PENDIENTE)->count(),
+            'en_progreso' => $noDescartados->where('estado', OpenIssueEstados::ITEM_EN_PROGRESO)->count(),
+            'porcentaje' => $total ? (int) round($hechos * 100 / $total) : 0,
+            'completo' => $total > 0 && $hechos === $total,
         ];
     }
 
@@ -576,6 +809,8 @@ class OpenIssueController extends Controller
             'puede_reabrir' => $puedeEscribir && $cerrado,
             'puede_involucrar' => $puedeEscribir && !$cerrado,
             'puede_quitar_involucrados' => $puedeEscribir && !$cerrado,
+            // §10.3 regla 1: mismo alcance que comentar el issue.
+            'puede_gestionar_items' => $puedeEscribir && !$cerrado,
             'es_creador' => $esCreador,
             'es_involucrado' => AlcanceOpenIssues::esInvolucrado($user, $i),
         ];

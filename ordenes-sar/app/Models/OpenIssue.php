@@ -66,6 +66,11 @@ class OpenIssue extends Model
         return $this->hasMany(OpenIssueActualizacion::class, 'issue_id')->orderBy('id');
     }
 
+    public function items(): HasMany
+    {
+        return $this->hasMany(OpenIssueItem::class, 'issue_id')->orderBy('orden')->orderBy('id');
+    }
+
     /**
      * True si $userId tiene fila en oi_involucrados para este issue. Usado por
      * App\Support\AlcanceOpenIssues y por los flags del detalle.

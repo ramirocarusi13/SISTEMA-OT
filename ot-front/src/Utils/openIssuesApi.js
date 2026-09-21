@@ -84,10 +84,44 @@ export function quitarInvolucradoOpenIssue(id, userId) {
     return apiFetch(`open-issues/${id}/involucrados/${userId}`, { method: 'DELETE' });
 }
 
+// POST /api/open-issues/{id}/items { items: [{titulo, detalle?, responsable_id?}] }
+// (1 a 50 items) -> 201 con el detalle completo del issue (§10.4).
+export function agregarItemsOpenIssue(id, items) {
+    return apiFetch(`open-issues/${id}/items`, {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+    });
+}
+
+// PUT /api/open-issues/{id}/items/{itemId} { titulo?, detalle?, responsable_id? }
+// -> 200 con el detalle completo del issue.
+export function actualizarItemOpenIssue(id, itemId, payload) {
+    return apiFetch(`open-issues/${id}/items/${itemId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+}
+
+// POST /api/open-issues/{id}/items/{itemId}/estado { estado, texto? }
+// -> 200 con el detalle completo del issue.
+export function cambiarEstadoItemOpenIssue(id, itemId, payload) {
+    return apiFetch(`open-issues/${id}/items/${itemId}/estado`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
 /**
  * Arma el FormData de POST /open-issues y de POST /open-issues/{id}/actualizaciones:
  * ignora null/undefined/'' y expande los arrays como `clave[]` (mismo criterio
  * que buildQuery de otApi.js), para no repetir este armado en los dos modales.
+ *
+ * Caso especial `items` (§10.6): un array de OBJETOS (ej. items: [{titulo,
+ * detalle?, responsable_id?}]) no puede viajar como `items[]` porque Laravel
+ * necesita las claves anidadas `items[0][titulo]`, `items[0][detalle]`, etc.
+ * para parsearlo igual que el JSON `items.*.titulo` que valida store(). Los
+ * arrays de escalares (involucrados_ids, departamentos_ids) siguen usando
+ * `clave[]` como siempre.
  */
 export function buildOpenIssueFormData(campos = {}, archivo = null) {
     const formData = new FormData();
@@ -96,6 +130,15 @@ export function buildOpenIssueFormData(campos = {}, archivo = null) {
         if (value === undefined || value === null || value === '') return;
         if (Array.isArray(value)) {
             if (value.length === 0) return;
+            if (typeof value[0] === 'object' && value[0] !== null && !(value[0] instanceof File)) {
+                value.forEach((item, index) => {
+                    Object.entries(item).forEach(([subKey, subValue]) => {
+                        if (subValue === undefined || subValue === null || subValue === '') return;
+                        formData.append(`${key}[${index}][${subKey}]`, subValue);
+                    });
+                });
+                return;
+            }
             value.forEach((item) => formData.append(`${key}[]`, item));
             return;
         }

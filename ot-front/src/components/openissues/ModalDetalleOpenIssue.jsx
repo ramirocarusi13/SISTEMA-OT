@@ -3,7 +3,7 @@
 // que ya vienen resueltos del backend (nunca se recalculan permisos acá).
 // Espejo de components/hhee/ModalDetalleSolicitudHhee.jsx.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Modal, Tag, Alert, Spin, Empty, Input, Upload, Checkbox, Timeline, Image, message } from 'antd';
+import { Modal, Tag, Alert, Spin, Empty, Input, Select, Upload, Checkbox, Timeline, Image, message } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import {
     fetchOpenIssue,
@@ -14,9 +14,18 @@ import {
     quitarInvolucradoOpenIssue,
     buildOpenIssueFormData,
 } from '../../Utils/openIssuesApi';
-import { getEstadoOpenIssueInfo, getPrioridadOpenIssueInfo, getColorTimeline, formatearFechaOI, esImagenOI, iniciales } from '../../Utils/openIssues';
+import {
+    getEstadoOpenIssueInfo,
+    getPrioridadOpenIssueInfo,
+    getEstadoItemInfo,
+    getColorTimeline,
+    formatearFechaOI,
+    esImagenOI,
+    iniciales,
+} from '../../Utils/openIssues';
 import ModalCrearOpenIssue from './ModalCrearOpenIssue';
 import SelectorInvolucrados from './SelectorInvolucrados';
+import ItemsOpenIssue from './ItemsOpenIssue';
 
 const { TextArea } = Input;
 
@@ -39,6 +48,9 @@ const ModalDetalleOpenIssue = ({ open, issueId, catalogos, onClose, onChanged })
     const [marcarEnProgreso, setMarcarEnProgreso] = useState(false);
     const [nuevoArchivo, setNuevoArchivo] = useState(null);
     const [publicando, setPublicando] = useState(false);
+
+    // Filtro "por item" de la actividad general (§10.6): 'todos' | 'sin_item' | id de item.
+    const [filtroItemActividad, setFiltroItemActividad] = useState('todos');
 
     const cargarDetalle = useCallback(async () => {
         if (!issueId) return;
@@ -66,11 +78,32 @@ const ModalDetalleOpenIssue = ({ open, issueId, catalogos, onClose, onChanged })
             setDepartamentoIdsNuevos([]);
             setInvolucrarOpen(false);
             setEditando(false);
+            setFiltroItemActividad('todos');
         }
     }, [open, cargarDetalle]);
 
+    // El deep-link de la campana puede cambiar de issue con el modal YA abierto
+    // (no pasa por la rama de cierre de arriba): el filtro por item y los
+    // borradores son del issue anterior y dejarían la Actividad vacía.
+    useEffect(() => {
+        setFiltroItemActividad('todos');
+        setNuevoTexto('');
+        setMarcarEnProgreso(false);
+        setNuevoArchivo(null);
+    }, [issueId]);
+
     const refrescarTodo = () => {
         cargarDetalle();
+        notificarCambio();
+        onChanged?.();
+    };
+
+    // Los endpoints de items (§10.6) devuelven el detalle COMPLETO del issue:
+    // se actualiza el estado local directo, sin volver a pedir el show, pero
+    // igual se dispara el mismo refresco de listas/badge que las otras acciones.
+    const handleIssueActualizado = (nuevoDetalle) => {
+        if (!nuevoDetalle) return;
+        setIssue(nuevoDetalle);
         notificarCambio();
         onChanged?.();
     };
@@ -102,15 +135,26 @@ const ModalDetalleOpenIssue = ({ open, issueId, catalogos, onClose, onChanged })
 
     const handleCerrar = () => {
         let textoCierre = '';
+        const pendientesSinResolver = (issue?.progreso?.pendientes || 0) + (issue?.progreso?.en_progreso || 0);
         Modal.confirm({
             title: 'Cerrar issue',
             content: (
-                <TextArea
-                    rows={3}
-                    maxLength={4000}
-                    placeholder="Comentario de cierre (opcional)"
-                    onChange={(e) => { textoCierre = e.target.value; }}
-                />
+                <>
+                    {pendientesSinResolver > 0 && (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            message={`Quedan ${pendientesSinResolver} item${pendientesSinResolver === 1 ? '' : 's'} sin resolver`}
+                            style={{ marginBottom: 12 }}
+                        />
+                    )}
+                    <TextArea
+                        rows={3}
+                        maxLength={4000}
+                        placeholder="Comentario de cierre (opcional)"
+                        onChange={(e) => { textoCierre = e.target.value; }}
+                    />
+                </>
             ),
             okText: 'Sí, cerrar',
             cancelText: 'Cancelar',
@@ -280,6 +324,15 @@ const ModalDetalleOpenIssue = ({ open, issueId, catalogos, onClose, onChanged })
                                 : <Empty description="Sin descripción." />}
                         </div>
 
+                        <ItemsOpenIssue
+                            issue={issue}
+                            catalogos={catalogos}
+                            flags={flags}
+                            onIssueActualizado={handleIssueActualizado}
+                            onSolicitarCierre={handleCerrar}
+                            cerrandoIssue={enviandoAccion}
+                        />
+
                         <div className="oi-card">
                             <h3 className="hhee-seccion-titulo">{`Involucrados (${(issue.involucrados || []).length})`}</h3>
                             <div className="oi-chips">
@@ -318,62 +371,95 @@ const ModalDetalleOpenIssue = ({ open, issueId, catalogos, onClose, onChanged })
 
                         <div className="oi-card">
                             <h3 className="hhee-seccion-titulo">Actividad</h3>
+
+                            {(issue.actualizaciones || []).length > 0 && (issue.items || []).length > 0 && (
+                                <div className="form-field oi-item-filtro-actividad">
+                                    <label className="form-label" htmlFor="oi-filtro-item-actividad">Filtrar por item</label>
+                                    <Select
+                                        id="oi-filtro-item-actividad"
+                                        value={filtroItemActividad}
+                                        onChange={setFiltroItemActividad}
+                                        style={{ width: '100%', maxWidth: 320 }}
+                                        options={[
+                                            { value: 'todos', label: 'Todos' },
+                                            { value: 'sin_item', label: 'Sin item' },
+                                            ...(issue.items || []).map((it) => ({ value: String(it.id), label: it.titulo })),
+                                        ]}
+                                    />
+                                </div>
+                            )}
+
                             {(issue.actualizaciones || []).length === 0 ? (
                                 <Empty description="Sin actividad." />
                             ) : (
                                 <Timeline
-                                    items={(issue.actualizaciones || []).map((a) => ({
-                                        color: getColorTimeline(a.tipo),
-                                        children: (
-                                            <div key={a.id}>
-                                                <p className="oi-timeline-autor">
-                                                    {a.autor?.name || 'Usuario'} <Tag>{a.tipo_label}</Tag>
-                                                </p>
-                                                <small className="oi-timeline-fecha">{formatearFechaOI(a.created_at)}</small>
-                                                {(a.estado_anterior || a.estado_nuevo) && (
-                                                    <div style={{ marginTop: 6 }}>
-                                                        {a.estado_anterior && (
-                                                            <Tag color={getEstadoOpenIssueInfo(catalogos?.estados, a.estado_anterior).color}>
-                                                                {getEstadoOpenIssueInfo(catalogos?.estados, a.estado_anterior).label}
-                                                            </Tag>
+                                    items={(issue.actualizaciones || [])
+                                        .filter((a) => {
+                                            if (filtroItemActividad === 'todos') return true;
+                                            if (filtroItemActividad === 'sin_item') return !a.item_id;
+                                            return String(a.item_id) === filtroItemActividad;
+                                        })
+                                        .map((a) => {
+                                            // Cambios de estado de ITEM usan el catálogo de estados de
+                                            // item (colores propios), no el de estados del issue (§10.6).
+                                            const infoEstado = (estado) => (a.tipo === 'item_estado'
+                                                ? getEstadoItemInfo(catalogos?.item_estados, estado)
+                                                : getEstadoOpenIssueInfo(catalogos?.estados, estado));
+
+                                            return {
+                                                color: getColorTimeline(a.tipo),
+                                                children: (
+                                                    <div key={a.id}>
+                                                        <p className="oi-timeline-autor">
+                                                            {a.autor?.name || 'Usuario'} <Tag>{a.tipo_label}</Tag>
+                                                            {a.item && <Tag className="oi-item-chip">{a.item.titulo}</Tag>}
+                                                        </p>
+                                                        <small className="oi-timeline-fecha">{formatearFechaOI(a.created_at)}</small>
+                                                        {(a.estado_anterior || a.estado_nuevo) && (
+                                                            <div style={{ marginTop: 6 }}>
+                                                                {a.estado_anterior && (
+                                                                    <Tag color={infoEstado(a.estado_anterior).color}>
+                                                                        {infoEstado(a.estado_anterior).label}
+                                                                    </Tag>
+                                                                )}
+                                                                {a.estado_anterior && a.estado_nuevo && ' → '}
+                                                                {a.estado_nuevo && (
+                                                                    <Tag color={infoEstado(a.estado_nuevo).color}>
+                                                                        {infoEstado(a.estado_nuevo).label}
+                                                                    </Tag>
+                                                                )}
+                                                            </div>
                                                         )}
-                                                        {a.estado_anterior && a.estado_nuevo && ' → '}
-                                                        {a.estado_nuevo && (
-                                                            <Tag color={getEstadoOpenIssueInfo(catalogos?.estados, a.estado_nuevo).color}>
-                                                                {getEstadoOpenIssueInfo(catalogos?.estados, a.estado_nuevo).label}
-                                                            </Tag>
+                                                        {a.texto && <p className="oi-timeline-texto">{a.texto}</p>}
+                                                        {/* Imágenes: mismo visor que las OT (antd Image con
+                                                            preview: rotar, zoom, espejar, sin salir de la app).
+                                                            Otros archivos (PDF, Word, Excel): link como antes. */}
+                                                        {a.archivo_url && esImagenOI(a.mime_type) && (
+                                                            <div className="oi-adjunto-imagen">
+                                                                <Image
+                                                                    src={a.archivo_url}
+                                                                    alt={a.archivo_nombre || 'adjunto'}
+                                                                    width={160}
+                                                                    height={120}
+                                                                    style={{ objectFit: 'cover', borderRadius: 8 }}
+                                                                    preview={{ src: a.archivo_url }}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                        {a.archivo_url && !esImagenOI(a.mime_type) && (
+                                                            <a
+                                                                className="hhee-adjunto-link"
+                                                                href={a.archivo_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                            >
+                                                                {a.archivo_nombre || 'Ver adjunto'}
+                                                            </a>
                                                         )}
                                                     </div>
-                                                )}
-                                                {a.texto && <p className="oi-timeline-texto">{a.texto}</p>}
-                                                {/* Imágenes: mismo visor que las OT (antd Image con
-                                                    preview: rotar, zoom, espejar, sin salir de la app).
-                                                    Otros archivos (PDF, Word, Excel): link como antes. */}
-                                                {a.archivo_url && esImagenOI(a.mime_type) && (
-                                                    <div className="oi-adjunto-imagen">
-                                                        <Image
-                                                            src={a.archivo_url}
-                                                            alt={a.archivo_nombre || 'adjunto'}
-                                                            width={160}
-                                                            height={120}
-                                                            style={{ objectFit: 'cover', borderRadius: 8 }}
-                                                            preview={{ src: a.archivo_url }}
-                                                        />
-                                                    </div>
-                                                )}
-                                                {a.archivo_url && !esImagenOI(a.mime_type) && (
-                                                    <a
-                                                        className="hhee-adjunto-link"
-                                                        href={a.archivo_url}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                    >
-                                                        {a.archivo_nombre || 'Ver adjunto'}
-                                                    </a>
-                                                )}
-                                            </div>
-                                        ),
-                                    }))}
+                                                ),
+                                            };
+                                        })}
                                 />
                             )}
                         </div>

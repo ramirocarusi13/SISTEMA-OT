@@ -148,6 +148,13 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
         Route::post('/{id}/involucrados', [OpenIssueController::class, 'storeInvolucrados'])->whereNumber('id');
         Route::delete('/{id}/involucrados/{userId}', [OpenIssueController::class, 'destroyInvolucrado'])
             ->whereNumber('id')->whereNumber('userId');
+
+        // Items dentro de un Open Issue (§10 de la spec del módulo).
+        Route::post('/{id}/items', [OpenIssueController::class, 'storeItems'])->whereNumber('id');
+        Route::put('/{id}/items/{itemId}', [OpenIssueController::class, 'updateItem'])
+            ->whereNumber('id')->whereNumber('itemId');
+        Route::post('/{id}/items/{itemId}/estado', [OpenIssueController::class, 'storeItemEstado'])
+            ->whereNumber('id')->whereNumber('itemId');
     });
 });
 

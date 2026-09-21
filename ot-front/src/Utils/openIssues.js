@@ -39,6 +39,24 @@ export function getPrioridadOpenIssueInfo(catalogoPrioridades = [], prioridad) {
     return PRIORIDADES_OI_FALLBACK[prioridad] || { label: prioridad || '—', color: 'default' };
 }
 
+// Espejo de App\Support\OpenIssueEstados::ITEM_ESTADOS_LABELS (fallback si el
+// catálogo del backend no llegó a tiempo). NO se usa como fuente de verdad primaria.
+export const ESTADOS_ITEM_OI_FALLBACK = {
+    pendiente: { label: 'Pendiente', color: 'default' },
+    en_progreso: { label: 'En progreso', color: 'blue' },
+    hecho: { label: 'Hecho', color: 'green' },
+    descartado: { label: 'Descartado', color: 'red' },
+};
+
+/** Info de UI (label + color de Tag AntD) para un estado de ITEM, priorizando el catálogo del backend. */
+export function getEstadoItemInfo(catalogoItemEstados = [], estado) {
+    const delCatalogo = (catalogoItemEstados || []).find((e) => e.value === estado);
+    if (delCatalogo) {
+        return { label: delCatalogo.label, color: delCatalogo.color };
+    }
+    return ESTADOS_ITEM_OI_FALLBACK[estado] || { label: estado || '—', color: 'default' };
+}
+
 // Color del punto del Timeline de AntD según el tipo de actualización.
 export const COLOR_TIMELINE_POR_TIPO = {
     apertura: 'gray',
@@ -49,6 +67,9 @@ export const COLOR_TIMELINE_POR_TIPO = {
     involucrado_agregado: 'gray',
     involucrado_quitado: 'gray',
     edicion: 'gray',
+    item_agregado: 'cyan',
+    item_estado: 'gold',
+    item_editado: 'gray',
 };
 
 /** Color del punto del Timeline de AntD para un tipo de actualización dado. */

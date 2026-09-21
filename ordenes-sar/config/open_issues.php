@@ -21,6 +21,10 @@ return [
     // (protege contra expandir por error un departamento gigante).
     'max_involucrados_por_lote' => 200,
 
+    // Tope de items (oi_items) que puede tener un issue, sumando altas
+    // sucesivas (§10.3 de la spec: se valida tanto por request como acumulado).
+    'max_items_por_issue' => 50,
+
     // Paginación del listado.
     'per_page_default' => 25,
     'per_page_max' => 100,
@@ -37,7 +41,7 @@ return [
     // evento no está en la lista, esa notificación queda solo en campana.
     'mail' => [
         'enabled' => env('OPEN_ISSUES_MAIL_ENABLED', true),
-        'eventos' => ['involucrado', 'actualizacion', 'cambio_estado', 'cierre', 'reapertura'],
+        'eventos' => ['involucrado', 'actualizacion', 'cambio_estado', 'cierre', 'reapertura', 'item_estado'],
     ],
 
     // Front del sistema (Nginx), para armar el deep-link "{front_url}/open-issues?issue={id}"

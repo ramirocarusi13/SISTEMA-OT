@@ -1794,6 +1794,246 @@
     font-size: 12px;
     color: var(--muted);
   }
+
+  /* --- Items de un Open Issue (§10.6): mismo lenguaje visual que el resto
+     del módulo (.oi-card/.oi-chip/.hhee-seccion-titulo), sin paleta propia. --- */
+  .oi-item-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .oi-item-header h3 {
+    margin: 0;
+  }
+
+  .oi-item-header__progreso {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 180px;
+  }
+
+  .oi-item-header__contador {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .oi-item-header__barra {
+    flex: 1 1 auto;
+    min-width: 100px;
+  }
+
+  .oi-item-ayuda {
+    margin: -8px 0 12px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .oi-item-filas {
+    display: grid;
+    gap: 8px;
+  }
+
+  .oi-item-fila {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .oi-item-fila > .ant-input {
+    flex: 1 1 auto;
+  }
+
+  .oi-item-fila__quitar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .oi-item-fila__quitar:hover {
+    border-color: #dc2626;
+    color: #dc2626;
+  }
+
+  /* Fila de un item ya guardado (dentro de ItemsOpenIssue), distinta de
+     .oi-item-fila (que es la fila de alta en ModalCrearOpenIssue): reusa el
+     prefijo con un modificador para no crear un nombre nuevo. */
+  .oi-item-lista {
+    display: grid;
+    gap: 12px;
+  }
+
+  .oi-item-lista .oi-item-fila {
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+  }
+
+  .oi-item-fila__principal {
+    display: grid;
+    grid-template-columns: 150px 1fr auto auto;
+    align-items: start;
+    gap: 12px;
+  }
+
+  .oi-item-fila__select-estado {
+    width: 100%;
+    min-width: 130px;
+  }
+
+  .oi-item-fila__info {
+    min-width: 0;
+  }
+
+  .oi-item-fila__titulo {
+    margin: 0;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 700;
+    word-break: break-word;
+  }
+
+  .oi-item-fila__titulo--resuelto {
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+
+  .oi-item-fila__detalle {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .oi-item-fila__responsable {
+    display: flex;
+    align-items: center;
+  }
+
+  .oi-item-sin-responsable {
+    color: var(--muted);
+    font-size: 12px;
+    font-style: italic;
+  }
+
+  .oi-item-fila__acciones {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .oi-item-btn-chico {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .oi-item-expandido {
+    margin-top: 12px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+
+  .oi-item-sin-actividad {
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: 12px;
+    font-style: italic;
+  }
+
+  .oi-item-comentarios {
+    display: grid;
+    gap: 12px;
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+  }
+
+  .oi-item-comentario {
+    border-bottom: 1px solid #edf2f7;
+    padding-bottom: 10px;
+  }
+
+  .oi-item-comentario:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .oi-item-comentario__estados {
+    margin-top: 4px;
+  }
+
+  .oi-item-comentario-caja {
+    display: grid;
+    gap: 8px;
+  }
+
+  .oi-item-comentario-caja__acciones {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .oi-item-agregar {
+    margin-top: 16px;
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+  }
+
+  .oi-item-agregar__form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .oi-item-agregar__form .ant-input {
+    flex: 1 1 220px;
+  }
+
+  .oi-item-chip {
+    margin-left: 8px;
+    font-weight: 700;
+  }
+
+  .oi-item-filtro-actividad {
+    margin-bottom: 16px;
+  }
+
+  /* Mini progreso de la columna "Items" de la tabla del listado. */
+  .oi-item-progreso-mini {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 110px;
+  }
+
+  .oi-item-progreso-mini__texto {
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .oi-item-progreso-mini__barra {
+    flex: 1 1 auto;
+    min-width: 60px;
+  }
 }
 
 .ant-btn {
@@ -1997,5 +2237,28 @@
   .hhee-detalle-header,
   .oi-detalle-header {
     grid-template-columns: 1fr;
+  }
+
+  .oi-item-fila__principal {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .oi-item-fila__acciones {
+    justify-content: flex-start;
+  }
+
+  .oi-item-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .oi-item-header__progreso {
+    min-width: 0;
+  }
+
+  .oi-item-agregar__form {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

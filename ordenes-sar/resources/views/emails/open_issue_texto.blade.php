@@ -5,6 +5,9 @@ Departamento destino: {{ $issue->departamentoDestino->nombre ?? 'N/D' }}
 Prioridad: {{ $prioridadLabel }}
 Estado: {{ $estadoLabel }}
 Creado por: {{ $issue->creador->name ?? 'N/D' }}
+@if($item)
+Item: {{ $item->titulo }}
+@endif
 @if($texto)
 
 Comentario:

@@ -3,7 +3,7 @@
 // pages/HorasExtras.jsx.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Tabs, Table, Tag, Button, Spin, Empty } from 'antd';
+import { Tabs, Table, Tag, Button, Spin, Empty, Progress } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import Header from '../components/Header';
 import UserProfile from '../components/UserProfile';
@@ -228,6 +228,22 @@ const OpenIssues = () => {
                         {restantes > 0 && (
                             <span className="oi-avatar oi-avatar--mas" title={`${restantes} más`}>{`+${restantes}`}</span>
                         )}
+                    </div>
+                );
+            },
+        },
+        {
+            title: 'Items',
+            key: 'items',
+            render: (_, r) => {
+                const total = r.items_total || 0;
+                if (total === 0) return '—';
+                const hechos = r.items_hechos || 0;
+                const porcentaje = Math.round((hechos * 100) / total);
+                return (
+                    <div className="oi-item-progreso-mini">
+                        <span className="oi-item-progreso-mini__texto">{`${hechos}/${total}`}</span>
+                        <Progress percent={porcentaje} size="small" showInfo={false} className="oi-item-progreso-mini__barra" />
                     </div>
                 );
             },

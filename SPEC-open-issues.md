@@ -1970,3 +1970,153 @@ Checklist específico:
    la alternativa sería full-text de SQL Server (fuera de alcance).
 7. **La migración en producción la corre el usuario**, no los agentes, con backup hecho y después de
    verificar que `DB_DATABASE` del `.env` sea la base esperada (`ordenes_sar`).
+
+---
+
+# 10. Items dentro de un Open Issue (anexo, 2026-09-21)
+
+**Motivo.** Los usuarios cargan varios puntos a mejorar dentro de la descripción de un mismo issue. Se
+necesita que cada punto sea un **item** propio del issue: con estado, responsable opcional y sus propias
+actualizaciones, para ir cerrándolos de a uno. La descripción libre se mantiene.
+
+## 10.1 Schema
+
+### `oi_items` — migración `2026_09_21_000001_create_oi_items_table.php`
+| Columna | Tipo | Notas |
+|---|---|---|
+| id | bigint identity | |
+| issue_id | bigint NOT NULL | FK `fk_oi_item_issue` → `oi_issues.id` **ON DELETE CASCADE** |
+| titulo | nvarchar(300) NOT NULL | el punto en una frase |
+| detalle | nvarchar(2000) NULL | aclaración opcional |
+| estado | nvarchar(20) NOT NULL default `pendiente` | `pendiente`, `en_progreso`, `hecho`, `descartado` |
+| responsable_id | bigint NULL | FK `fk_oi_item_responsable` → `users.id` NO ACTION |
+| creado_por_id | bigint NOT NULL | FK `fk_oi_item_creado_por` → `users.id` NO ACTION |
+| resuelto_por_id | bigint NULL | FK `fk_oi_item_resuelto_por` → `users.id` NO ACTION |
+| fecha_resuelto | datetime NULL | se setea al pasar a `hecho` o `descartado`, se limpia al salir |
+| orden | smallint NOT NULL default 0 | orden de carga (1..n) |
+| timestamps | | |
+
+Índices: `ix_oi_item_issue_orden (issue_id, orden)`, `ix_oi_item_responsable_estado (responsable_id, estado)`.
+
+### `oi_actualizaciones.item_id` — migración `2026_09_21_000002_add_item_to_oi_actualizaciones_table.php`
+`item_id` bigint NULL, FK `fk_oi_act_item` → `oi_items.id` **NO ACTION** (no CASCADE: `oi_issues` ya
+cascadea hacia ambas tablas y SQL Server rechaza una segunda ruta, error 1785) + índice
+`ix_oi_act_item (item_id, id)`. Debe correr en sqlsrv y en sqlite (tests). En sqlite alcanza con
+`Schema::table` agregando la columna nullable + índice (la FK es no-op documentado, ver la migración
+`2026_09_18_000004`). `down()` para ambos drivers.
+
+**Los items no se borran físicamente** (igual que los issues, §5.9): un item que sobra se pasa a
+`descartado`. Así la FK NO ACTION nunca molesta y el historial queda íntegro.
+
+Nota: borrar físicamente una fila de `oi_issues` con actualizaciones ligadas a items puede fallar con
+el error 547 de SQL Server (la cascada hacia `oi_actualizaciones` choca con la FK NO ACTION
+`fk_oi_act_item`); no es un problema porque issues e items no se borran nunca.
+
+## 10.2 Modelo y soporte
+- `App\Models\OpenIssueItem` (`$table = 'oi_items'`), relaciones `issue`, `responsable`, `creadoPor`,
+  `resueltoPor`, `actualizaciones` (hasMany por `item_id`). `OpenIssue::items()` hasMany ordenado por
+  `orden, id`. `OpenIssueActualizacion::item()` belongsTo; `item_id` en `$fillable`.
+- `OpenIssueEstados`: constantes `ITEM_PENDIENTE`, `ITEM_EN_PROGRESO`, `ITEM_HECHO`, `ITEM_DESCARTADO`,
+  `ITEM_ESTADOS_LABELS` (Pendiente → `default`, En progreso → `blue`, Hecho → `green`,
+  Descartado → `red`; colores de Tag de antd), `itemEstados()`, `catalogoItemEstados()`,
+  `itemEsResuelto($estado)` (hecho o descartado). Cualquier transición entre estados de item es válida
+  salvo al mismo estado (422). Tipos de actualización nuevos: `TIPO_ITEM_AGREGADO = item_agregado`,
+  `TIPO_ITEM_ESTADO = item_estado`, `TIPO_ITEM_EDITADO = item_editado`, con labels "Item agregado",
+  "Estado de item", "Item editado".
+- `config/open_issues.php`: `max_items_por_issue => 50`; agregar `item_estado` a `mail.eventos`.
+
+## 10.3 Reglas de negocio
+1. **Quién**: agregar, editar, cambiar estado y comentar un item requiere lo mismo que comentar el issue
+   (`AlcanceOpenIssues::puedeEscribir`). Flag nuevo en `flags`: `puede_gestionar_items` (igual a
+   `puede_actualizar`).
+2. **Issue cerrado = congelado**: ninguna operación de items (422), igual que el resto.
+3. **Alta**: en `POST /open-issues` se acepta `items[]` opcional (máx. 50), cada uno con
+   `titulo` (requerido, máx 300), `detalle` opcional (máx 2000) y `responsable_id` opcional
+   (exists users). También por `POST /{id}/items`, uno o varios. `orden` = siguiente correlativo.
+4. **Responsable**: opcional. Si el responsable asignado no es involucrado del issue, se lo **agrega como
+   involucrado** (`origen = manual`) en la misma transacción, con su fila `involucrado_agregado`, para
+   que vea el issue y reciba avisos. Se puede quitar (null).
+5. **Estado del item**: `POST /{id}/items/{itemId}/estado` con `estado` y `texto` opcional registra una
+   actualización `item_estado` con `item_id`, `estado_anterior`, `estado_nuevo` (estados del ITEM) y
+   `texto`. Al pasar a resuelto setea `resuelto_por_id` y `fecha_resuelto`; al volver a pendiente o
+   en_progreso los limpia.
+6. **Efecto sobre el issue**: si el issue está `abierto` y un item pasa a `en_progreso` o `hecho`, el issue
+   pasa solo a `en_progreso` (una fila `cambio_estado` automática con texto "Pasó a En progreso por
+   avance en un item."). **Nunca se cierra solo**: cuando todos los items no descartados están `hecho`,
+   el detalle devuelve `progreso.completo = true` y el front sugiere cerrar.
+7. **Comentario sobre un item**: `POST /{id}/actualizaciones` acepta `item_id` opcional (debe pertenecer
+   al issue, si no 422). Mismo comportamiento que hoy, con la actualización ligada al item.
+8. **Edición del item** (`PUT /{id}/items/{itemId}`): `titulo`, `detalle`, `responsable_id`. Registra
+   `item_editado` solo si cambió algo. No notifica, salvo al nuevo responsable.
+9. **Cerrar el issue con items pendientes** está permitido (el front pide confirmación mostrando
+   cuántos quedan). No cambia el estado de los items.
+10. Toda escritura pasa por `OpenIssueFlujo` dentro de `DB::transaction` con `conLock($issue)`, igual que
+    el resto del módulo.
+
+## 10.4 API (dentro del `Route::prefix('open-issues')` existente)
+| Método | Ruta | Body | Respuesta |
+|---|---|---|---|
+| POST | `/{id}/items` | `items`: array de 1 a 50 objetos `titulo`, `detalle?`, `responsable_id?` | 201 detalle completo del issue (§4.3) |
+| PUT | `/{id}/items/{itemId}` | `titulo?`, `detalle?`, `responsable_id?` | 200 detalle completo |
+| POST | `/{id}/items/{itemId}/estado` | `estado`, `texto?` | 200 detalle completo |
+
+`itemId` que no pertenece al issue → 404. Validación 422 estándar. Mismo patrón de errores de §4.5.
+
+### Cambios de shape
+- `detalle()` suma:
+  - `items`: array de `id, titulo, detalle, estado, estado_label, estado_color, orden,
+    responsable (id, name o null), creado_por (id, name), resuelto_por (id, name o null),
+    fecha_resuelto, actualizaciones_count, ultima_actualizacion_at, created_at`, ordenados por `orden, id`.
+  - `progreso`: `total, hechos, descartados, pendientes, en_progreso, porcentaje, completo`, donde
+    `total` excluye descartados, `porcentaje = total ? round(hechos*100/total) : 0`,
+    `completo = total > 0 && hechos === total`.
+- `actualizacionArray()` suma `item_id` e `item` (`id, titulo`, o null).
+- `filaListado()` suma `items_total` e `items_hechos` (sin descartados; con `withCount` filtrado, sin N+1).
+- `catalogos()` suma `item_estados` (value, label, color).
+- `flags` suma `puede_gestionar_items`.
+
+## 10.5 Notificaciones (campana, y por el enganche existente WhatsApp; mail según `mail.eventos`)
+| Acción | Destinatarios | Texto de campana | Mail |
+|---|---|---|---|
+| Items agregados | creador + involucrados, sin el actor | `{actor} agregó {n} item(s) al Open Issue #{id}: {titulo issue}` | no |
+| Estado de item | creador + involucrados, sin el actor | `{actor} marcó como {label} el item «{titulo item}» del Open Issue #{id}` | sí, evento `item_estado`, asunto `Open Issue #{id}: item {label} por {actor}` |
+| Responsable asignado | el responsable, si no es el actor | `{actor} te asignó el item «{titulo item}» del Open Issue #{id}` | sí, evento `involucrado` con ese encabezado |
+| Comentario en item | igual que un comentario común | `{actor} comentó en el item «{titulo item}» del Open Issue #{id}` | sí, `actualizacion` |
+
+Título de item recortado a 80 caracteres en los textos. `estado_anterior` y `estado_nuevo` de
+`notificaciones` nunca null (usar el estado del ISSUE como hasta ahora).
+
+## 10.6 Frontend
+- `Utils/openIssuesApi.js`: `agregarItemsOpenIssue(id, items)`, `actualizarItemOpenIssue(id, itemId, payload)`,
+  `cambiarEstadoItemOpenIssue(id, itemId, payload)`; `crearOpenIssue` manda `items` (en FormData como
+  `items[0][titulo]`, etc.). `Utils/openIssues.js`: `getEstadoItemInfo(catalogo, estado)`.
+- **ModalCrearOpenIssue**: sección "Items (opcional)" debajo de la descripción: lista dinámica de filas
+  (input título + botón quitar) con "+ Agregar item"; Enter en un input agrega la fila siguiente. En modo
+  edición del issue la sección no aparece (los items se gestionan desde el detalle).
+- **ModalDetalleOpenIssue**: card nueva "Items" entre Descripción e Involucrados:
+  - Encabezado con `hechos/total` y `Progress` de antd; si `progreso.completo` y `flags.puede_cerrar`,
+    un `Alert` "Todos los items están hechos. Podés cerrar el issue." con botón Cerrar issue.
+  - Cada item en una fila: Tag de estado (si `puede_gestionar_items`, es un `Select` o `Dropdown` para
+    cambiarlo; al elegir pide comentario opcional en un modal con TextArea), título (tachado si
+    hecho o descartado), responsable (avatar con iniciales o "Sin responsable"), contador de
+    actualizaciones y botón "Ver / comentar" que expande debajo las actualizaciones de ESE item más una
+    caja de comentario rápido (texto + adjunto opcional) que publica con `item_id`.
+  - Acciones por item (si flag): editar (modal chico: título, detalle, responsable con el Select de
+    usuarios agrupado por departamento) y cambiar estado. "+ Agregar item" abre un input inline.
+  - Estado vacío: "Este issue no tiene items. Agregá uno para dividir el trabajo en puntos."
+- **Actividad general**: las entradas con `item` muestran un chip con el título del item; arriba del
+  timeline un `Select` "Filtrar por item" (Todos, Sin item, cada item).
+- **Cerrar issue**: si `progreso.pendientes + progreso.en_progreso > 0`, el confirm avisa
+  "Quedan N items sin resolver".
+- **Tabla de la página**: columna "Items" con `hechos/total` y un `Progress` mini; "—" si no tiene.
+- CSS con prefijo `oi-item-`, responsive, mismo lenguaje visual. El front NUNCA recalcula permisos.
+
+## 10.7 Tests
+`tests/Feature/OpenIssuesItemsTest.php`: alta de issue con items (orden correlativo, tope 50 → 422);
+agregar items después; cambio de estado (actualización `item_estado` con item_id, resuelto_por y fecha,
+limpieza al volver a pendiente); auto `en_progreso` del issue desde `abierto` y NO cierre automático;
+`progreso` (descartados excluidos, `completo`); comentario con `item_id` válido y 422 con item de otro
+issue; 404 de item ajeno en las rutas de item; responsable no involucrado queda involucrado y notificado;
+tercero sin alcance 403; issue cerrado 422 en las tres rutas; notificaciones (nunca al actor) y mail
+`item_estado` encolado; `filaListado` con `items_total` e `items_hechos`; `catalogos.item_estados`.
+Criterio: `php artisan test` completo en verde (hoy 252).
