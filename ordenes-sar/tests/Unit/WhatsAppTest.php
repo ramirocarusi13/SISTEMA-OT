@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Support\WhatsApp;
 use Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Tests de App\Support\WhatsApp (normalización de celular -> chatId de
@@ -27,7 +28,7 @@ class WhatsAppTest extends TestCase
         ];
     }
 
-    /** @dataProvider celularesValidosProvider */
+    #[DataProvider('celularesValidosProvider')]
     public function test_chat_id_desde_celular_normaliza_formatos_validos(string $celular, string $chatIdEsperado): void
     {
         $this->assertSame($chatIdEsperado, WhatsApp::chatIdDesdeCelular($celular));
@@ -48,7 +49,7 @@ class WhatsAppTest extends TestCase
         ];
     }
 
-    /** @dataProvider celularesInvalidosProvider */
+    #[DataProvider('celularesInvalidosProvider')]
     public function test_chat_id_desde_celular_devuelve_null_para_casos_no_resolubles(?string $celular): void
     {
         $this->assertNull(WhatsApp::chatIdDesdeCelular($celular));

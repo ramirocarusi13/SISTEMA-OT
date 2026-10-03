@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Passport\Passport;
 use Tests\TestCase;
+use PHPUnit\Framework\Attributes\Test;
 
 /**
  * Contrato del que depende el front para detectar una sesión vencida
@@ -19,7 +20,7 @@ class SesionVencidaTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** @test */
+    #[Test]
     public function token_invalido_pidiendo_json_responde_401_y_no_500()
     {
         $respuesta = $this->withHeaders([
@@ -31,7 +32,7 @@ class SesionVencidaTest extends TestCase
         $respuesta->assertJsonStructure(['message']);
     }
 
-    /** @test */
+    #[Test]
     public function token_invalido_sin_header_accept_responde_401_y_no_redirige()
     {
         // Así llaman los fetch viejos del front (sin Accept: application/json).
@@ -43,7 +44,7 @@ class SesionVencidaTest extends TestCase
         $this->assertFalse($respuesta->isRedirection());
     }
 
-    /** @test */
+    #[Test]
     public function sin_token_responde_401_en_rutas_de_los_tres_modulos()
     {
         foreach (['/api/user', '/api/ordenes-trabajo', '/api/hhee/catalogos', '/api/open-issues/catalogos', '/api/notificaciones'] as $ruta) {
@@ -51,7 +52,7 @@ class SesionVencidaTest extends TestCase
         }
     }
 
-    /** @test */
+    #[Test]
     public function con_sesion_valida_la_verificacion_del_front_responde_200()
     {
         $depto = Departamento::create(['nombre' => 'IT']);
@@ -66,7 +67,7 @@ class SesionVencidaTest extends TestCase
         $this->getJson('/api/user')->assertStatus(200)->assertJsonPath('id', $user->id);
     }
 
-    /** @test */
+    #[Test]
     public function el_login_con_credenciales_malas_no_cambia_su_respuesta()
     {
         // El 401/422 del propio login NO es una sesión vencida: el front lo

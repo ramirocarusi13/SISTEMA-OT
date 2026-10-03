@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Support\PrioridadOT;
 use Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Tests de App\Support\PrioridadOT (SPEC-prioridad-reportes.md §1 y §2).
@@ -34,7 +35,7 @@ class PrioridadOTTest extends TestCase
         ];
     }
 
-    /** @dataProvider categoriasYPrioridadEsperadaProvider */
+    #[DataProvider('categoriasYPrioridadEsperadaProvider')]
     public function test_calcular_mapea_cada_categoria_a_su_prioridad_automatica(string $categoria, string $prioridadEsperada): void
     {
         $resultado = PrioridadOT::calcular($categoria, false);
@@ -60,9 +61,11 @@ class PrioridadOTTest extends TestCase
     // Regla "es_seguridad fuerza crítica" (§1) sobre CADA categoría
     // =========================================================================
 
-    /** @dataProvider categoriasYPrioridadEsperadaProvider */
-    public function test_es_seguridad_true_fuerza_critica_sin_importar_la_categoria(string $categoria): void
+    #[DataProvider('categoriasYPrioridadEsperadaProvider')]
+    public function test_es_seguridad_true_fuerza_critica_sin_importar_la_categoria(string $categoria, string $prioridadSinSeguridad): void
     {
+        // $prioridadSinSeguridad no se usa: el provider es compartido y PHPUnit 12
+        // exige que el test acepte todos los argumentos del data set.
         $resultado = PrioridadOT::calcular($categoria, true);
 
         $this->assertSame(PrioridadOT::CRITICA, $resultado['prioridad']);
@@ -92,7 +95,7 @@ class PrioridadOTTest extends TestCase
         ];
     }
 
-    /** @dataProvider slaHorasPorPrioridadProvider */
+    #[DataProvider('slaHorasPorPrioridadProvider')]
     public function test_sla_horas_devuelve_las_horas_configuradas_por_prioridad(string $prioridad, int $horasEsperadas): void
     {
         $this->assertSame($horasEsperadas, PrioridadOT::slaHoras($prioridad));

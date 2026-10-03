@@ -1,5 +1,7 @@
 # Use PHP with Apache as the base image
-FROM php:8.2-apache-bullseye
+# PHP 8.3 sobre Debian 12 (bookworm) explicito: `php:8.3-apache` hoy apunta a
+# Debian 13 (trixie) y `-bullseye` ya no recibe actualizaciones.
+FROM php:8.3-apache-bookworm
 
 # Install Additional System Dependencies
 RUN apt-get update && apt-get install -y \
@@ -31,12 +33,12 @@ RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf
 ENV ACCEPT_EULA=Y
 RUN apt-get update && apt-get install -y gnupg2 curl apt-transport-https ca-certificates
 RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
-RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/11/prod bullseye main" > /etc/apt/sources.list.d/mssql-release.list
-RUN apt-get update 
-RUN ACCEPT_EULA=Y apt-get -y --no-install-recommends install msodbcsql17 unixodbc-dev 
+RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/mssql-release.list
+RUN apt-get update
+RUN ACCEPT_EULA=Y apt-get -y --no-install-recommends install msodbcsql17 unixodbc-dev
 RUN pecl channel-update pecl.php.net
-RUN pecl install sqlsrv-5.12.0
-RUN pecl install pdo_sqlsrv-5.12.0
+RUN pecl install sqlsrv-5.13.3
+RUN pecl install pdo_sqlsrv-5.13.3
 RUN docker-php-ext-enable sqlsrv pdo_sqlsrv
 
 # Copy the application code
@@ -52,18 +54,17 @@ RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local
 RUN composer install --ignore-platform-req=ext-gd
 RUN composer require opcodesio/log-viewer 
 
-# Bullseye salio de soporte LTS (ago 2026): bullseye-security quedo
-# inconsistente (el indice lista .deb que ya no estan -> 404) y todavia no
-# esta en archive.debian.org. Se saca ese repo y se instala supervisor con
-# sus dependencias desde bullseye/main, que sigue funcionando.
-RUN sed -i '/bullseye-security/d' /etc/apt/sources.list \
-    && apt-get update \
+# Imagen en bookworm: ya no hace falta el workaround de bullseye-security
+# (y en bookworm /etc/apt/sources.list no existe: usa debian.sources).
+RUN apt-get update \
     && apt-get install -y supervisor
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Set permissions
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
+# Passport 13 genera las llaves con permisos 600/660 y VALIDA esos permisos
+# en cada request (no cambiar a 775/777 con un chmod -R sobre storage).
 RUN php artisan passport:keys
 RUN php artisan log-viewer:publish
 

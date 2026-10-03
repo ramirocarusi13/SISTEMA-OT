@@ -185,7 +185,7 @@ class OrdenTrabajo extends Model
         // "por_vencer" cuando queda <= 25% del SLA total hasta el vencimiento.
         // Acá ya sabemos que $ahora <= $vencimiento (si no, ya hubiese retornado
         // 'vencida' arriba), así que el valor absoluto es siempre el remanente real.
-        $minutosRestantes = $ahora->diffInMinutes($vencimiento);
+        $minutosRestantes = (int) $ahora->diffInMinutes($vencimiento, true);
         $minutosSlaTotal = $this->sla_horas * 60;
         $umbralPorVencer = $minutosSlaTotal * 0.25;
 

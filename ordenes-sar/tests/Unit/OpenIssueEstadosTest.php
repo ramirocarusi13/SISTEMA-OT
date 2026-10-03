@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Support\OpenIssueEstados;
 use Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Tests de App\Support\OpenIssueEstados: máquina de estados de
@@ -27,7 +28,7 @@ class OpenIssueEstadosTest extends TestCase
         ];
     }
 
-    /** @dataProvider transicionesValidasProvider */
+    #[DataProvider('transicionesValidasProvider')]
     public function test_transiciones_validas_estan_permitidas(string $de, string $a): void
     {
         $this->assertTrue(OpenIssueEstados::puedeTransicionar($de, $a));
@@ -60,7 +61,7 @@ class OpenIssueEstadosTest extends TestCase
         ];
     }
 
-    /** @dataProvider transicionesInvalidasProvider */
+    #[DataProvider('transicionesInvalidasProvider')]
     public function test_transiciones_invalidas_estan_bloqueadas(string $de, string $a): void
     {
         $this->assertFalse(OpenIssueEstados::puedeTransicionar($de, $a));
@@ -84,7 +85,7 @@ class OpenIssueEstadosTest extends TestCase
         ];
     }
 
-    /** @dataProvider estadosNoTerminalesProvider */
+    #[DataProvider('estadosNoTerminalesProvider')]
     public function test_estados_no_terminales(string $estado): void
     {
         $this->assertFalse(OpenIssueEstados::esTerminal($estado));

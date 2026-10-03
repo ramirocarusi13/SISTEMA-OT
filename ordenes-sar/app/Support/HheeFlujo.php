@@ -474,7 +474,7 @@ class HheeFlujo
             $fin->addDay();
         }
 
-        $minutos = $inicio->diffInMinutes($fin);
+        $minutos = (int) $inicio->diffInMinutes($fin, true);
 
         return round($minutos / 60, 2);
     }

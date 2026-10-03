@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Support\HheeEstados;
 use Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Tests de App\Support\HheeEstados: máquina de estados de
@@ -31,7 +32,7 @@ class HheeEstadosTest extends TestCase
         ];
     }
 
-    /** @dataProvider transicionesValidasProvider */
+    #[DataProvider('transicionesValidasProvider')]
     public function test_transiciones_validas_estan_permitidas(string $de, string $a): void
     {
         $this->assertTrue(HheeEstados::puedeTransicionar($de, $a));
@@ -79,7 +80,7 @@ class HheeEstadosTest extends TestCase
         ];
     }
 
-    /** @dataProvider transicionesInvalidasProvider */
+    #[DataProvider('transicionesInvalidasProvider')]
     public function test_transiciones_invalidas_estan_bloqueadas(string $de, string $a): void
     {
         $this->assertFalse(HheeEstados::puedeTransicionar($de, $a));
@@ -99,7 +100,7 @@ class HheeEstadosTest extends TestCase
         ];
     }
 
-    /** @dataProvider estadosTerminalesProvider */
+    #[DataProvider('estadosTerminalesProvider')]
     public function test_estados_terminales(string $estado): void
     {
         $this->assertTrue(HheeEstados::esTerminal($estado));
@@ -116,7 +117,7 @@ class HheeEstadosTest extends TestCase
         ];
     }
 
-    /** @dataProvider estadosNoTerminalesProvider */
+    #[DataProvider('estadosNoTerminalesProvider')]
     public function test_estados_no_terminales(string $estado): void
     {
         $this->assertFalse(HheeEstados::esTerminal($estado));
