@@ -59,7 +59,13 @@ class AuthController extends Controller
             // $token = $user->createToken('auth_token')->plainTextToken;
             $token = $user->createToken('Laravel Password Gran Client')->accessToken;
             
-            return response()->json(['access_token' => $token, 'user' => $user, 'token_type' => 'Bearer']);
+            // + departamento_base_id / departamentos_disponibles para el switch
+            // de departamento del front (ver App\Http\Middleware\DepartamentoActivo).
+            return response()->json([
+                'access_token' => $token,
+                'user' => array_merge($user->toArray(), $user->datosSwitchDepartamento()),
+                'token_type' => 'Bearer',
+            ]);
         } catch (\Exception $e) {
             
             // Si hay un error al crear el token, devolver mensaje de error

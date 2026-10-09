@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { tomarRetorno, esRetornoValido } from '../Utils/sesion';
+import { tomarRetorno, esRetornoValido, limpiarDepartamentoActivo } from '../Utils/sesion';
 
 const APIURI = import.meta.env.VITE_API
 
@@ -16,6 +16,7 @@ const Login = () => {
     useEffect(() => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        limpiarDepartamentoActivo();
     }, []);
 
     const handleSubmit = async (e) => {

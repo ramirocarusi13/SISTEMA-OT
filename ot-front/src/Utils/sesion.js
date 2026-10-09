@@ -49,6 +49,52 @@ export function tomarRetorno() {
     }
 }
 
+// --- Switch de departamento --------------------------------------------------
+// Usuarios con más de un departamento (hoy solo Agustín Otero: Mantenimiento +
+// Ingeniería, ver user.departamentos_disponibles que manda el login) eligen
+// con cuál trabajar. El elegido viaja en el header X-Departamento-Activo en
+// TODOS los requests a nuestra API (lo agrega instalarInterceptor401) y el
+// backend lo trata como gerente de ese departamento. Además se pisa
+// user.departamento_id en localStorage para que las pantallas muestren la
+// vista de ese departamento.
+const CLAVE_DEPTO_ACTIVO = 'ot:departamento_activo';
+
+export function getDepartamentoActivo() {
+    try {
+        return localStorage.getItem(CLAVE_DEPTO_ACTIVO);
+    } catch {
+        return null;
+    }
+}
+
+export function limpiarDepartamentoActivo() {
+    try {
+        localStorage.removeItem(CLAVE_DEPTO_ACTIVO);
+    } catch {
+        // sin storage: no hay nada que limpiar
+    }
+}
+
+/** Cambia el departamento activo y recarga para que todas las pantallas lo tomen. */
+export function cambiarDepartamentoActivo(departamento) {
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!user) return;
+
+    if (Number(departamento.id) === Number(user.departamento_base_id)) {
+        limpiarDepartamentoActivo();
+    } else {
+        localStorage.setItem(CLAVE_DEPTO_ACTIVO, String(departamento.id));
+    }
+
+    localStorage.setItem('user', JSON.stringify({
+        ...user,
+        departamento_id: departamento.id,
+        departamento: { ...(user.departamento || {}), id: departamento.id, nombre: departamento.nombre },
+    }));
+
+    window.location.reload();
+}
+
 let redirigiendo = false;
 
 /**
@@ -59,6 +105,7 @@ let redirigiendo = false;
 export function cerrarSesionYIrAlLogin() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    limpiarDepartamentoActivo();
 
     if (window.location.pathname.startsWith('/login')) return;
     if (redirigiendo) return;
@@ -85,6 +132,14 @@ export function instalarInterceptor401() {
     const fetchOriginal = window.fetch.bind(window);
 
     window.fetch = async (input, init) => {
+        const deptoActivo = getDepartamentoActivo();
+        const urlPedido = urlDe(input);
+        if (deptoActivo && APIURI !== '' && urlPedido.startsWith(APIURI) && !urlPedido.startsWith(`${APIURI}login`)) {
+            const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+            headers.set('X-Departamento-Activo', deptoActivo);
+            init = { ...init, headers };
+        }
+
         const respuesta = await fetchOriginal(input, init);
 
         if (respuesta.status === 401) {

@@ -45,7 +45,7 @@ class UserController extends Controller
         // puedeEditar), porque un usuario de SyH puede escribir en las OTs de
         // su propio departamento y solo es de lectura en las ajenas que ve
         // por estar marcadas de seguridad.
-        return response()->json($user->toArray());
+        return response()->json(array_merge($user->toArray(), $user->datosSwitchDepartamento()));
     }
 
     /**

@@ -30,7 +30,10 @@ Route::group(['middleware' => ['cors', 'json.response']], function () {
     /* Route::get('login', [AuthController::class, 'login']); */
 });
 
-Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function () {
+// 'departamento.activo': switch de departamento (hoy solo Agustín Otero,
+// Mantenimiento <-> Ingeniería). Aplica a OTs/reportes/notificaciones; HHEE y
+// Open Issues quedan afuera (withoutMiddleware) y siguen con el depto base.
+Route::group(['middleware' => ['auth:api', 'cors', 'json.response', 'departamento.activo']], function () {
     Route::get('/usuarios-mantenimiento', [UserController::class, 'getUsuariosMantenimiento']);
     Route::get('/user', [UserController::class, 'getAuthenticatedUser']);
 
@@ -106,7 +109,7 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
     // (ese middleware solo resuelve alcance sobre una OT). La autorización de
     // escritura del módulo la resuelven App\Support\AlcanceHhee/HheeFlujo.
     // -------------------------------------------------------------------
-    Route::prefix('hhee')->group(function () {
+    Route::prefix('hhee')->withoutMiddleware('departamento.activo')->group(function () {
         Route::get('/catalogos', [SolicitudHheeController::class, 'catalogos']);
         Route::get('/pendientes', [SolicitudHheeController::class, 'pendientes']);
 
@@ -132,7 +135,7 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response']], function (
     // EL ORDEN IMPORTA: /catalogos y /pendientes van ANTES de /{id} (si no,
     // 'catalogos' matchearía como {id}); además {id} está restringido a numérico.
     // -------------------------------------------------------------------
-    Route::prefix('open-issues')->group(function () {
+    Route::prefix('open-issues')->withoutMiddleware('departamento.activo')->group(function () {
         Route::get('/catalogos', [OpenIssueController::class, 'catalogos']);
         Route::get('/pendientes', [OpenIssueController::class, 'pendientes']);
 

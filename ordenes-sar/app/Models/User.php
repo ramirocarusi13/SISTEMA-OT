@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 // use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Laravel\Passport\Contracts\OAuthenticatable;
@@ -91,6 +92,40 @@ class User extends Authenticatable implements OAuthenticatable
     public function departamento() : HasOne {
         return $this->hasOne(Departamento::class,'id','departamento_id');
     }
+    /**
+     * Departamentos ADICIONALES (además de departamento_id) entre los que el
+     * usuario puede hacer switch desde el front. Ver
+     * App\Http\Middleware\DepartamentoActivo.
+     */
+    public function departamentosAdicionales(): BelongsToMany
+    {
+        return $this->belongsToMany(Departamento::class, 'user_departamentos_adicionales', 'user_id', 'departamento_id');
+    }
+
+    /**
+     * Datos del switch de departamento para el front (login y GET /user):
+     * departamento base (el real de la tabla users) + los que puede activar.
+     * Solo se arma en esos dos endpoints (no va en $appends para no agregar
+     * una query por cada User serializado en los listados).
+     */
+    public function datosSwitchDepartamento(): array
+    {
+        // De la base y no del modelo: con el switch activo, departamento_id
+        // en memoria es el elegido (ver DepartamentoActivo), no el base.
+        $base = (int) static::whereKey($this->getKey())->value('departamento_id');
+        $departamentos = Departamento::whereIn('id', $this->departamentosAdicionales()->pluck('departamentos.id')->push($base))
+            ->orderBy('nombre')
+            ->get(['id', 'nombre'])
+            ->sortBy(fn ($d) => (int) $d->id === $base ? 0 : 1)
+            ->values()
+            ->map(fn ($d) => ['id' => (int) $d->id, 'nombre' => $d->nombre]);
+
+        return [
+            'departamento_base_id' => $base,
+            'departamentos_disponibles' => $departamentos->all(),
+        ];
+    }
+
     public function gerente(): HasOne
     {
         return $this->hasOne(User::class, 'departamento_id')->where('rol', 'gerente');

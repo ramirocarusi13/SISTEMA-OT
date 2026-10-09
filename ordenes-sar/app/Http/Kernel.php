@@ -91,5 +91,8 @@ class Kernel extends HttpKernel
         // APP-RRHH, en vez de auth:api/Passport. Ver
         // App\Http\Middleware\VerificarIntegracionHhee.
         'hhee.integracion' => \App\Http\Middleware\VerificarIntegracionHhee::class,
+        // Switch de departamento (header X-Departamento-Activo) para usuarios
+        // con departamentos adicionales. Ver App\Http\Middleware\DepartamentoActivo.
+        'departamento.activo' => \App\Http\Middleware\DepartamentoActivo::class,
     ];
 }

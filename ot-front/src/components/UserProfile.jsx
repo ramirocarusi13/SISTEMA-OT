@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { FaSignOutAlt, FaUser } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
+import { Segmented } from 'antd';
 import Notificacion from './Notificacion';
+import { cambiarDepartamentoActivo, limpiarDepartamentoActivo } from '../Utils/sesion';
 
 const UserProfile = () => {
     const [user, setUser] = useState(null);
@@ -19,6 +21,7 @@ const UserProfile = () => {
     const handleLogout = () => {
         localStorage.removeItem('user');
         localStorage.removeItem('token');
+        limpiarDepartamentoActivo();
         navigate('/login');
     };
 
@@ -34,7 +37,17 @@ const UserProfile = () => {
                 </div>
                 <div className="min-w-0">
                     <p className="profile-name">{user.name}</p>
-                    <p className="profile-department">{user.departamento?.nombre}</p>
+                    {user.departamentos_disponibles?.length > 1 ? (
+                        // Switch de departamento (hoy solo Agustín Otero: Mantenimiento / Ingeniería)
+                        <Segmented
+                            size="small"
+                            value={Number(user.departamento_id)}
+                            options={user.departamentos_disponibles.map((d) => ({ label: d.nombre, value: d.id }))}
+                            onChange={(id) => cambiarDepartamentoActivo(user.departamentos_disponibles.find((d) => d.id === id))}
+                        />
+                    ) : (
+                        <p className="profile-department">{user.departamento?.nombre}</p>
+                    )}
                 </div>
             </div>
 

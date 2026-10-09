@@ -636,6 +636,14 @@ class OrdenTrabajoController extends Controller
         // Obtener todos los gerentes asociados al departamento
         $gerentes = $departamento->gerentes; // Suponiendo que la relación se llama "gerentes"
 
+        // + gerentes que tienen este departamento como ADICIONAL (ej. Agustín
+        // Otero, gerente de Mantenimiento y también de Ingeniería).
+        $gerentes = $gerentes->merge(
+            User::where('rol', 'gerente')
+                ->whereHas('departamentosAdicionales', fn ($q) => $q->where('departamentos.id', $departamento->id))
+                ->get()
+        )->unique('id');
+
         if ($gerentes->isEmpty()) {
             Log::warning('No se encontraron gerentes asociados al departamento del usuario: ' . $departamento->id);
             return;
