@@ -67,7 +67,8 @@ class AuthController extends Controller
                 'token_type' => 'Bearer',
             ]);
         } catch (\Exception $e) {
-            
+            Log::error('Error al crear el token del usuario ' . $user->id . ': ' . $e->getMessage());
+
             // Si hay un error al crear el token, devolver mensaje de error
             return response()->json(['message' => 'Error al crear el token', 'error' => $e->getMessage()], 500);
         }

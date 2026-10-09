@@ -8,6 +8,7 @@ use App\Support\Departamentos;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Log;
 // use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -113,7 +114,16 @@ class User extends Authenticatable implements OAuthenticatable
         // De la base y no del modelo: con el switch activo, departamento_id
         // en memoria es el elegido (ver DepartamentoActivo), no el base.
         $base = (int) static::whereKey($this->getKey())->value('departamento_id');
-        $departamentos = Departamento::whereIn('id', $this->departamentosAdicionales()->pluck('departamentos.id')->push($base))
+        try {
+            $adicionales = $this->departamentosAdicionales()->pluck('departamentos.id');
+        } catch (\Throwable $e) {
+            // Sin la tabla (migración no corrida) el login y GET /user NO se
+            // rompen: el usuario queda sin switch, como antes de esta feature.
+            Log::error('No se pudieron leer los departamentos adicionales del usuario ' . $this->getKey() . ': ' . $e->getMessage());
+            $adicionales = collect();
+        }
+
+        $departamentos = Departamento::whereIn('id', $adicionales->push($base))
             ->orderBy('nombre')
             ->get(['id', 'nombre'])
             ->sortBy(fn ($d) => (int) $d->id === $base ? 0 : 1)
