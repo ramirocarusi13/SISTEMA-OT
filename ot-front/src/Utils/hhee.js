@@ -104,11 +104,32 @@ export function iniciales(nombre) {
 // logueado. Lo que sí carga el solicitante es el "Sector" del turno (valores
 // fijos del formulario FO-008-RRH). Fallback local por si catalogos.sectores
 // todavía no vino del backend (módulo en desarrollo en paralelo).
-export const SECTORES_HHEE_FALLBACK = ['Calidad', 'Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff'];
+export const SECTORES_HHEE_FALLBACK = ['Administración', 'Calidad', 'Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff'];
 
 /** Opciones de sector: catálogo del backend (catalogos.sectores) si ya está, si no el fallback fijo de arriba. */
 export function getSectoresHhee(catalogos) {
     return catalogos?.sectores?.length ? catalogos.sectores : SECTORES_HHEE_FALLBACK;
+}
+
+// Espejo de config('hhee.motivos') del backend (fallback si el catálogo no llegó).
+export const MOTIVOS_HHEE_FALLBACK = ['Nuevo proyecto', 'Mantenimiento', 'Reparaciones', 'Stock / volumen'];
+
+/** Opciones del desplegable de motivo: catalogos.motivos si ya está, si no el fallback. */
+export function getMotivosHhee(catalogos) {
+    return catalogos?.motivos?.length ? catalogos.motivos : MOTIVOS_HHEE_FALLBACK;
+}
+
+/**
+ * Normaliza un texto para comparar sin mayúsculas ni acentos
+ * ("Administración" == "administracion").
+ */
+export function normalizarTexto(texto) {
+    return (texto || '')
+        .toString()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .toLowerCase()
+        .trim();
 }
 
 /**

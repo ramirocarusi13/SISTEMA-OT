@@ -93,6 +93,24 @@ return [
             'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', null),
         ],
 
+        // Nómina de APP-RRHH (base SAR_RRHH2), SOLO LECTURA: el módulo HHEE la
+        // usa para sugerir empleados por sector en la carga masiva (ver
+        // App\Support\HheeNomina). Si DB_HOST_RRHH no está seteado, la nómina
+        // queda vacía y el formulario sigue funcionando con nombres a mano.
+        'rrhh' => [
+            'driver' => 'sqlsrv',
+            'host' => env('DB_HOST_RRHH'),
+            'port' => env('DB_PORT_RRHH', '1433'),
+            'database' => env('DB_DATABASE_RRHH', 'SAR_RRHH2'),
+            'username' => env('DB_USERNAME_RRHH'),
+            'password' => env('DB_PASSWORD_RRHH', ''),
+            'charset' => 'utf8',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'encrypt' => env('DB_ENCRYPT_RRHH', env('DB_ENCRYPT', null)),
+            'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE_RRHH', env('DB_TRUST_SERVER_CERTIFICATE', null)),
+        ],
+
     ],
 
     /*

@@ -123,7 +123,7 @@ class GroupLeaderNoMantenimientoTest extends TestCase
             'turno' => 'Turno Mañana',
             'detalles' => [[
                 'nombre' => 'Juan Pérez',
-                'motivo' => 'Refuerzo de turno',
+                'motivo' => 'Mantenimiento',
                 'necesita_transporte' => false,
                 'hora_desde' => '08:00',
                 'hora_hasta' => '16:00',

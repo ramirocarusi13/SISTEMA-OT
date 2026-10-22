@@ -1322,6 +1322,79 @@
     font-weight: 800;
   }
 
+  .hhee-empleados-acciones {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .hhee-masivo {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    background: var(--surface-muted);
+  }
+
+  .hhee-masivo-titulo {
+    color: #475569;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 4px;
+  }
+
+  .hhee-opcion-meta {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .hhee-nomina-filtros {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .hhee-nomina-ya {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .hhee-nomina-seleccion {
+    margin: 8px 0 12px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .hhee-nomina-comunes h4 {
+    margin: 0 0 10px;
+    color: #1f2937;
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .hhee-nomina-comunes-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 12px;
+  }
+
+  @media (max-width: 720px) {
+    .hhee-nomina-filtros,
+    .hhee-nomina-comunes-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .hhee-tope-nota {
     color: var(--muted);
     font-size: 12px;

@@ -3,7 +3,7 @@
 // número), más la fecha en que se realizaron las horas (default =
 // fecha_hhee de la cabecera).
 import React, { useEffect, useState } from 'react';
-import { Modal, Table, InputNumber, DatePicker, message } from 'antd';
+import { Modal, Table, InputNumber, DatePicker, Button, message } from 'antd';
 import moment from 'moment';
 import { cargarHorasRealesHhee } from '../../Utils/hheeApi';
 import { formatearHoras } from '../../Utils/hhee';
@@ -11,6 +11,8 @@ import { formatearHoras } from '../../Utils/hhee';
 const ModalHorasRealesHhee = ({ open, solicitud, onClose, onSuccess }) => {
     const [filas, setFilas] = useState([]);
     const [enviando, setEnviando] = useState(false);
+    // Carga masiva: mismas horas reales para todos los empleados.
+    const [horasTodos, setHorasTodos] = useState(null);
 
     useEffect(() => {
         if (open && solicitud) {
@@ -30,7 +32,15 @@ const ModalHorasRealesHhee = ({ open, solicitud, onClose, onSuccess }) => {
         setFilas((prev) => prev.map((fila) => (fila.detalle_id === detalleId ? { ...fila, [campo]: valor } : fila)));
     };
 
-    const totalGeneral = filas.reduce((acc, fila) => acc + (Number(fila.horas_reales) || 0), 0);
+    const aplicarHorasATodos = () => {
+        if (horasTodos === null || horasTodos === undefined) {
+            message.info('Indicá las horas a aplicar.');
+            return;
+        }
+        setFilas((prev) => prev.map((fila) => ({ ...fila, horas_reales: horasTodos })));
+    };
+
+    const totalGeneral =filas.reduce((acc, fila) => acc + (Number(fila.horas_reales) || 0), 0);
 
     const handleGuardar = async () => {
         const faltaFecha = filas.some((fila) => !fila.fecha_realizacion);
@@ -104,6 +114,21 @@ const ModalHorasRealesHhee = ({ open, solicitud, onClose, onSuccess }) => {
             width={640}
             destroyOnClose
         >
+            {filas.length > 1 && (
+                <div className="hhee-masivo">
+                    <span className="hhee-masivo-titulo">Mismas horas para todos</span>
+                    <InputNumber
+                        min={0}
+                        max={24}
+                        step={0.5}
+                        placeholder="Horas"
+                        value={horasTodos}
+                        onChange={setHorasTodos}
+                        aria-label="Horas reales para todos"
+                    />
+                    <Button onClick={aplicarHorasATodos}>Aplicar</Button>
+                </div>
+            )}
             <Table
                 dataSource={filas}
                 columns={columns}

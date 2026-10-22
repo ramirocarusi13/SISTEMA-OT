@@ -9,7 +9,7 @@ import SolicitudHheeFilter from '../components/hhee/SolicitudHheeFilter';
 import ModalCrearSolicitudHhee from '../components/hhee/ModalCrearSolicitudHhee';
 import ModalDetalleSolicitudHhee from '../components/hhee/ModalDetalleSolicitudHhee';
 import { fetchCatalogosHhee, fetchSolicitudesHhee, fetchPendientesHhee } from '../Utils/hheeApi';
-import { getEstadoHheeInfo, formatearHoras, getSectoresHhee, sectorOFallback } from '../Utils/hhee';
+import { getEstadoHheeInfo, formatearHoras, getSectoresHhee, getMotivosHhee, sectorOFallback } from '../Utils/hhee';
 
 const PAGE_SIZE_DEFAULT = 10;
 
@@ -354,14 +354,19 @@ const HorasExtras = () => {
                             <p className="ot-eyebrow">Sistema OT</p>
                             <h1>Horas Extras</h1>
                         </div>
-                        <button
-                            className="primary-action"
-                            type="button"
-                            onClick={() => setModalCrearOpen(true)}
-                        >
-                            <PlusOutlined />
-                            Nueva solicitud
-                        </button>
+                        {/* Solo de group leader para arriba (catalogos.puede_cargar,
+                            ver App\Support\HheePermisos). Si el backend es viejo y no
+                            manda el flag, se muestra como antes. */}
+                        {catalogos?.puede_cargar !== false && (
+                            <button
+                                className="primary-action"
+                                type="button"
+                                onClick={() => setModalCrearOpen(true)}
+                            >
+                                <PlusOutlined />
+                                Nueva solicitud
+                            </button>
+                        )}
                     </div>
 
                     {catalogosLoading && (
@@ -382,6 +387,7 @@ const HorasExtras = () => {
                 open={modalCrearOpen}
                 solicitud={null}
                 sectores={getSectoresHhee(catalogos)}
+                motivos={getMotivosHhee(catalogos)}
                 usuarios={catalogos?.usuarios || []}
                 maxHorasPorEmpleado={catalogos?.max_horas_por_empleado}
                 onClose={() => setModalCrearOpen(false)}

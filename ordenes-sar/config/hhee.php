@@ -101,7 +101,54 @@ return [
     |
     */
 
-    'sectores' => ['Calidad', 'Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff'],
+    'sectores' => ['Administración', 'Calidad', 'Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff'],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Motivos de horas extras (hhee_solicitud_detalles.motivo)
+    |--------------------------------------------------------------------------
+    |
+    | Desplegable fijo del motivo por empleado. Se guarda el texto tal cual en
+    | la columna `motivo` (las solicitudes viejas con motivo libre no se tocan).
+    | Para agregar uno nuevo, sumarlo acá: el front lo toma de /hhee/catalogos.
+    |
+    */
+
+    'motivos' => ['Nuevo proyecto', 'Mantenimiento', 'Reparaciones', 'Stock / volumen'],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Quién puede CARGAR solicitudes (de group leader para arriba)
+    |--------------------------------------------------------------------------
+    |
+    | Puede crear/editar/enviar solicitudes quien cumpla al menos una:
+    | - users.rol está en esta lista;
+    | - tiene un rol de aprobación HHEE activo (hhee_roles_aprobacion);
+    | - está habilitado a mano en hhee_habilitados_carga (casos puntuales).
+    | El resto de los usuarios solo puede ver sus solicitudes. Ver
+    | App\Support\HheePermisos::puedeCargar().
+    |
+    */
+
+    'roles_pueden_cargar' => ['group_leader', 'gerente', 'admin'],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Nómina (APP-RRHH, solo lectura)
+    |--------------------------------------------------------------------------
+    |
+    | Conexión de config/database.php desde donde se lee la nómina de
+    | empleados (tablas employees + departments de SAR_RRHH2) y minutos de
+    | cache para no pegarle a esa base en cada apertura del formulario.
+    |
+    */
+
+    'nomina' => [
+        'conexion' => env('HHEE_NOMINA_CONEXION', 'rrhh'),
+        'cache_minutos' => (int) env('HHEE_NOMINA_CACHE_MINUTOS', 10),
+        // estado_actual de employees que se consideran "en nómina".
+        'estados_activos' => ['Activo'],
+    ],
 
     /*
     |--------------------------------------------------------------------------

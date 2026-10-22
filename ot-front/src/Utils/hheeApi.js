@@ -14,6 +14,13 @@ export function fetchCatalogosHhee() {
     return apiFetch('hhee/catalogos');
 }
 
+// GET /api/hhee/nomina -> { disponible, empleados: [{legajo, nombre, puesto, departamento}] }
+// Nómina de APP-RRHH (solo lectura) para la carga masiva por sector. Si la
+// base de RRHH no está configurada, disponible=false y empleados=[].
+export function fetchNominaHhee() {
+    return apiFetch('hhee/nomina');
+}
+
 // GET /api/hhee/pendientes -> { total, solicitudes } (para el badge de la campana/nav y la tab "Pendientes de mi firma").
 // El polling del Header solo necesita el número: se pide con soloTotal=true para
 // mandar `?solo_total=1` (SolicitudHheeController::pendientes() ya lo soporta y

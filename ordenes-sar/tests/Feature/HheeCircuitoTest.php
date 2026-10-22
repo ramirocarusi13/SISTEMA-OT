@@ -55,7 +55,7 @@ class HheeCircuitoTest extends TestCase
     {
         return User::factory()->create(array_merge([
             'departamento_id' => $departamento->id,
-            'rol' => 'team_member',
+            'rol' => 'group_leader',
             'turno' => 'Turno Mañana',
         ], $overrides));
     }
@@ -83,7 +83,7 @@ class HheeCircuitoTest extends TestCase
     {
         return array_merge([
             'nombre' => 'Juan Pérez',
-            'motivo' => 'Refuerzo de turno',
+            'motivo' => 'Mantenimiento',
             'necesita_transporte' => false,
             'hora_desde' => '08:00',
             'hora_hasta' => '16:00',
@@ -862,9 +862,10 @@ class HheeCircuitoTest extends TestCase
         Passport::actingAs($gl);
         $catalogos = $this->getJson('/api/hhee/catalogos');
         $catalogos->assertStatus(200);
-        // Debe reflejar config('hhee.sectores') tal cual (Calidad se agregó en el
-        // commit "HHEE: agregar Calidad a los sectores" sin actualizar este test).
-        $catalogos->assertJsonPath('sectores', ['Calidad', 'Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff']);
+        // Debe reflejar config('hhee.sectores') tal cual.
+        $catalogos->assertJsonPath('sectores', ['Administración', 'Calidad', 'Corte', 'Costura', 'Mantenimiento', 'PC', 'Staff']);
+        $catalogos->assertJsonPath('motivos', ['Nuevo proyecto', 'Mantenimiento', 'Reparaciones', 'Stock / volumen']);
+        $catalogos->assertJsonPath('puede_cargar', true);
     }
 
     // =========================================================================

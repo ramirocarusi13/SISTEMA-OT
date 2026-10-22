@@ -11,7 +11,7 @@ import {
     aprobarSolicitudHhee,
     anularSolicitudHhee,
 } from '../../Utils/hheeApi';
-import { getEstadoHheeInfo, formatearHoras, cruzaMedianocheHhee, horaCorta, iniciales, getSectoresHhee, sectorOFallback } from '../../Utils/hhee';
+import { getEstadoHheeInfo, formatearHoras, cruzaMedianocheHhee, horaCorta, iniciales, getSectoresHhee, getMotivosHhee, sectorOFallback } from '../../Utils/hhee';
 import ModalCrearSolicitudHhee from './ModalCrearSolicitudHhee';
 import ModalRechazarSolicitudHhee from './ModalRechazarSolicitudHhee';
 import ModalHorasRealesHhee from './ModalHorasRealesHhee';
@@ -124,6 +124,7 @@ const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onCh
     const mostrarReales = solicitud && (solicitud.estado === 'aprobada' || solicitud.estado === 'cerrada');
 
     const columnasDetalle = [
+        { title: 'Legajo', dataIndex: 'legajo', key: 'legajo', render: (legajo) => legajo || '—' },
         { title: 'Empleado', dataIndex: 'nombre', key: 'nombre' },
         { title: 'Motivo', dataIndex: 'motivo', key: 'motivo' },
         {
@@ -421,6 +422,7 @@ const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onCh
                     open={editando}
                     solicitud={solicitud}
                     sectores={getSectoresHhee(catalogos)}
+                    motivos={getMotivosHhee(catalogos)}
                     usuarios={catalogos?.usuarios || []}
                     maxHorasPorEmpleado={catalogos?.max_horas_por_empleado}
                     onClose={() => setEditando(false)}

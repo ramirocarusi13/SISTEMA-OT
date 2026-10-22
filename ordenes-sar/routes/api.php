@@ -112,6 +112,7 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response', 'departament
     Route::prefix('hhee')->withoutMiddleware('departamento.activo')->group(function () {
         Route::get('/catalogos', [SolicitudHheeController::class, 'catalogos']);
         Route::get('/pendientes', [SolicitudHheeController::class, 'pendientes']);
+        Route::get('/nomina', [SolicitudHheeController::class, 'nomina']);
 
         Route::get('/solicitudes', [SolicitudHheeController::class, 'index']);
         Route::post('/solicitudes', [SolicitudHheeController::class, 'store']);

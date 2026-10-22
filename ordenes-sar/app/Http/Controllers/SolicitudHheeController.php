@@ -10,6 +10,8 @@ use App\Support\HheeAprobadores;
 use App\Support\HheeAutorizacionException;
 use App\Support\HheeEstados;
 use App\Support\HheeFlujo;
+use App\Support\HheeNomina;
+use App\Support\HheePermisos;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
@@ -51,12 +53,30 @@ class SolicitudHheeController extends Controller
             // nada lo consume, se puede sacar.
             'tipos_hora' => config('hhee.tipos_hora'),
             'sectores' => config('hhee.sectores'),
+            'motivos' => config('hhee.motivos'),
+            // De group leader para arriba (ver App\Support\HheePermisos): el
+            // front oculta "Nueva solicitud" si es false.
+            'puede_cargar' => HheePermisos::puedeCargar($user),
             'mis_niveles' => HheeAprobadores::nivelesGenerales($user),
             'es_contingencia' => HheeAprobadores::tieneRolContingenciaActivo($user),
             'max_horas_por_empleado' => (float) config('hhee.max_horas_por_empleado'),
             'departamentos' => Departamento::query()->select('id', 'nombre')->orderBy('nombre')->get(),
             'usuarios' => User::query()->select('id', 'name', 'departamento_id')->orderBy('name')->get(),
         ]);
+    }
+
+    /**
+     * Nómina de personal (APP-RRHH, solo lectura) para la carga masiva por
+     * sector: { disponible, empleados: [{legajo, nombre, puesto, departamento}] }.
+     * Solo para quien puede cargar solicitudes. Ver App\Support\HheeNomina.
+     */
+    public function nomina()
+    {
+        if (!HheePermisos::puedeCargar(auth()->user())) {
+            return response()->json(['error' => 'No tiene permisos para cargar solicitudes de horas extras'], 403);
+        }
+
+        return response()->json(HheeNomina::obtener());
     }
 
     /**
@@ -203,6 +223,8 @@ class SolicitudHheeController extends Controller
             $solicitud = HheeFlujo::crear($validado, auth()->user());
 
             return response()->json($solicitud->load(['detalles', 'aprobaciones']), 201);
+        } catch (HheeAutorizacionException $e) {
+            return response()->json(['error' => $e->getMessage()], 403);
         } catch (ValidationException $e) {
             throw $e;
         } catch (\Exception $e) {
@@ -401,7 +423,11 @@ class SolicitudHheeController extends Controller
             // buscador de empleados, pero el campo 'nombre' libre sigue
             // siendo obligatorio (operarios sin usuario se escriben a mano).
             'detalles.*.user_id' => 'nullable|integer|exists:users,id',
-            'detalles.*.motivo' => 'required|string|max:500',
+            // Legajo de la nómina de RRHH cuando el empleado se eligió de la
+            // lista (carga masiva por sector); vacío si se escribió a mano.
+            'detalles.*.legajo' => 'nullable|string|max:20',
+            // Desplegable fijo (config('hhee.motivos')).
+            'detalles.*.motivo' => ['required', 'string', Rule::in(config('hhee.motivos'))],
             'detalles.*.necesita_transporte' => 'boolean',
             'detalles.*.localidad' => 'nullable|string|max:150|required_if:detalles.*.necesita_transporte,true',
             'detalles.*.hora_desde' => 'required|date_format:H:i',

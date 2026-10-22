@@ -9,12 +9,25 @@
 // medianoche automáticamente; "hasta" == "desde" es inválido) — acá se
 // espeja ese cálculo en vivo (Utils/hhee.js::calcularHoras) solo para
 // mostrarle al usuario cuánto va a quedar, nunca se manda al servidor.
-import React, { useEffect, useState } from 'react';
+//
+// Carga masiva: "Agregar desde nómina" (components/hhee/ModalNominaHhee.jsx)
+// suma de una vez a todos los empleados tildados de un sector con el mismo
+// motivo y horario; "Aplicar a todas las filas" pisa motivo/horario de toda
+// la tabla. El motivo es un desplegable fijo (catalogos.motivos).
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, DatePicker, Select, Input, Switch, TimePicker, Button, AutoComplete, Tooltip, message } from 'antd';
-import { PlusOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, UserOutlined, TeamOutlined, IdcardOutlined } from '@ant-design/icons';
 import moment from 'moment';
-import { crearSolicitudHhee, actualizarSolicitudHhee } from '../../Utils/hheeApi';
-import { calcularHoras, cruzaMedianocheHhee, formatearHoras, horaCorta, SECTORES_HHEE_FALLBACK } from '../../Utils/hhee';
+import { crearSolicitudHhee, actualizarSolicitudHhee, fetchNominaHhee } from '../../Utils/hheeApi';
+import {
+    calcularHoras,
+    cruzaMedianocheHhee,
+    formatearHoras,
+    horaCorta,
+    SECTORES_HHEE_FALLBACK,
+    MOTIVOS_HHEE_FALLBACK,
+} from '../../Utils/hhee';
+import ModalNominaHhee from './ModalNominaHhee';
 
 const { TextArea } = Input;
 
@@ -22,9 +35,10 @@ let contadorFilas = 0;
 const nuevaFilaVacia = () => ({
     key: `nueva-${Date.now()}-${contadorFilas++}`,
     id: null,
+    legajo: null,
     nombre: '',
     user_id: null,
-    motivo: '',
+    motivo: null,
     necesita_transporte: false,
     localidad: '',
     hora_desde: null,
@@ -34,16 +48,30 @@ const nuevaFilaVacia = () => ({
 const filaDesdeDetalle = (detalle) => ({
     key: `existente-${detalle.id}`,
     id: detalle.id,
+    legajo: detalle.legajo || null,
     nombre: detalle.nombre || '',
     user_id: detalle.user_id || null,
-    motivo: detalle.motivo || '',
+    motivo: detalle.motivo || null,
     necesita_transporte: !!detalle.necesita_transporte,
     localidad: detalle.localidad || '',
     hora_desde: detalle.hora_desde ? moment(horaCorta(detalle.hora_desde), 'HH:mm') : null,
     hora_hasta: detalle.hora_hasta ? moment(horaCorta(detalle.hora_hasta), 'HH:mm') : null,
 });
 
-const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES_HHEE_FALLBACK, usuarios = [], maxHorasPorEmpleado = 12, onSuccess }) => {
+// Una fila "en blanco" (la que arranca por defecto) se descarta al sumar
+// empleados desde la nómina, para no dejar una fila vacía arriba.
+const filaEnBlanco = (fila) => !fila.nombre.trim() && !fila.motivo && !fila.hora_desde && !fila.hora_hasta;
+
+const ModalCrearSolicitudHhee = ({
+    open,
+    onClose,
+    solicitud,
+    sectores = SECTORES_HHEE_FALLBACK,
+    motivos = MOTIVOS_HHEE_FALLBACK,
+    usuarios = [],
+    maxHorasPorEmpleado = 12,
+    onSuccess,
+}) => {
     const esEdicion = !!solicitud;
     const [fechaHhee, setFechaHhee] = useState(null);
     const [sector, setSector] = useState(null);
@@ -51,6 +79,28 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
     const [observaciones, setObservaciones] = useState('');
     const [filas, setFilas] = useState([nuevaFilaVacia()]);
     const [guardando, setGuardando] = useState(null); // null | 'borrador' | 'enviar'
+
+    // Nómina de RRHH (para "Agregar desde nómina" y las sugerencias del nombre).
+    const [nomina, setNomina] = useState({ disponible: true, empleados: [] });
+    const [nominaCargando, setNominaCargando] = useState(false);
+    const [nominaOpen, setNominaOpen] = useState(false);
+
+    // "Aplicar a todas las filas"
+    const [masivoMotivo, setMasivoMotivo] = useState(null);
+    const [masivoDesde, setMasivoDesde] = useState(null);
+    const [masivoHasta, setMasivoHasta] = useState(null);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        let cancelado = false;
+        setNominaCargando(true);
+        fetchNominaHhee().then(({ ok, data }) => {
+            if (cancelado) return;
+            setNomina(ok && data ? { disponible: !!data.disponible, empleados: data.empleados || [] } : { disponible: false, empleados: [] });
+            setNominaCargando(false);
+        });
+        return () => { cancelado = true; };
+    }, [open]);
 
     // El departamento_id ya NO se elige a mano: el backend lo resuelve del
     // usuario logueado (ver ordenes-sar/app/Http/Controllers/SolicitudHheeController.php,
@@ -76,25 +126,65 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
             setObservaciones('');
             setFilas([nuevaFilaVacia()]);
         }
+        setMasivoMotivo(null);
+        setMasivoDesde(null);
+        setMasivoHasta(null);
     }, [open, solicitud]);
 
     const actualizarFila = (key, campo, valor) => {
         setFilas((prev) => prev.map((fila) => (fila.key === key ? { ...fila, [campo]: valor } : fila)));
     };
 
-    // El nombre y el vínculo a un usuario del sistema (user_id) se actualizan
-    // siempre juntos: al elegir de la lista quedan ligados; al tipear libre
-    // (o al cambiar el texto de un empleado ya vinculado) se desvincula.
-    const actualizarNombreFila = (key, nombre, userId) => {
-        setFilas((prev) => prev.map((fila) => (fila.key === key ? { ...fila, nombre, user_id: userId } : fila)));
+    // El nombre y su vínculo (user_id del sistema o legajo de la nómina) se
+    // actualizan siempre juntos: al elegir de la lista quedan ligados; al
+    // tipear libre (o cambiar el texto de uno ya vinculado) se desvincula.
+    const actualizarNombreFila = (key, nombre, userId, legajo) => {
+        setFilas((prev) => prev.map((fila) => (fila.key === key ? { ...fila, nombre, user_id: userId, legajo } : fila)));
     };
 
-    // options del AutoComplete de empleados: tolerante a que 'usuarios' venga
-    // vacío (todavía sin desplegar en el backend) — en ese caso el campo sigue
-    // funcionando como texto libre, sin sugerencias.
-    const opcionesUsuarios = usuarios.map((u) => ({ value: u.name, id: u.id }));
+    // Sugerencias del nombre: nómina de RRHH (con legajo) + usuarios del
+    // sistema. Si ambas vienen vacías, el campo sigue siendo texto libre.
+    const opcionesEmpleados = useMemo(() => {
+        const deNomina = nomina.empleados.map((e, i) => ({
+            key: `n-${e.legajo || i}-${e.nombre}`,
+            value: e.nombre,
+            label: (
+                <span>
+                    {e.nombre}
+                    <span className="hhee-opcion-meta"> · {e.legajo ? `Leg. ${e.legajo} · ` : ''}{e.departamento}</span>
+                </span>
+            ),
+            legajo: e.legajo || null,
+            id: null,
+        }));
+        const nombresNomina = new Set(nomina.empleados.map((e) => e.nombre.toLowerCase()));
+        const deUsuarios = usuarios
+            .filter((u) => !nombresNomina.has((u.name || '').toLowerCase()))
+            .map((u) => ({ key: `u-${u.id}`, value: u.name, label: u.name, id: u.id, legajo: null }));
+        return [...deNomina, ...deUsuarios];
+    }, [nomina.empleados, usuarios]);
 
     const agregarFila = () => setFilas((prev) => [...prev, nuevaFilaVacia()]);
+
+    const agregarDesdeNomina = (nuevas) => {
+        setFilas((prev) => [...prev.filter((fila) => !filaEnBlanco(fila)), ...nuevas]);
+    };
+
+    // Carga masiva de horas: aplica a TODAS las filas lo que se haya completado
+    // (motivo y/o horario). Lo que quede vacío no se toca.
+    const aplicarATodas = () => {
+        if (!masivoMotivo && !masivoDesde && !masivoHasta) {
+            message.info('Completá el motivo y/o el horario a aplicar.');
+            return;
+        }
+        setFilas((prev) => prev.map((fila) => ({
+            ...fila,
+            ...(masivoMotivo ? { motivo: masivoMotivo } : {}),
+            ...(masivoDesde ? { hora_desde: masivoDesde } : {}),
+            ...(masivoHasta ? { hora_hasta: masivoHasta } : {}),
+        })));
+        message.success(`Aplicado a ${filas.length} fila${filas.length === 1 ? '' : 's'}.`);
+    };
     const quitarFila = (key) => setFilas((prev) => (prev.length > 1 ? prev.filter((fila) => fila.key !== key) : prev));
 
     const horasDeFila = (fila) => calcularHoras(
@@ -111,7 +201,8 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
             const fila = filas[i];
             const numero = i + 1;
             if (!fila.nombre.trim()) return `Fila ${numero}: falta el nombre del empleado.`;
-            if (!fila.motivo.trim()) return `Fila ${numero}: falta el motivo.`;
+            if (!fila.motivo) return `Fila ${numero}: falta el motivo.`;
+            if (!motivos.includes(fila.motivo)) return `Fila ${numero}: elegí un motivo de la lista.`;
             if (fila.necesita_transporte && !fila.localidad.trim()) return `Fila ${numero}: falta la localidad para el transporte.`;
             if (!fila.hora_desde || !fila.hora_hasta) return `Fila ${numero}: falta el horario previsto.`;
 
@@ -130,9 +221,10 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
         observaciones: observaciones || null,
         enviar,
         detalles: filas.map((fila) => ({
+            legajo: fila.legajo || null,
             nombre: fila.nombre.trim(),
             user_id: fila.user_id || null,
-            motivo: fila.motivo.trim(),
+            motivo: fila.motivo,
             necesita_transporte: !!fila.necesita_transporte,
             localidad: fila.necesita_transporte ? fila.localidad.trim() : null,
             hora_desde: fila.hora_desde.format('HH:mm'),
@@ -238,7 +330,34 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
             <div className="hhee-card">
             <div className="hhee-empleados-header">
                 <h3>Empleados</h3>
-                <span className="hhee-tope-nota">Tope: {maxHorasPorEmpleado} h por empleado</span>
+                <div className="hhee-empleados-acciones">
+                    <span className="hhee-tope-nota">Tope: {maxHorasPorEmpleado} h por empleado</span>
+                    <Button
+                        type="primary"
+                        ghost
+                        icon={<TeamOutlined />}
+                        onClick={() => setNominaOpen(true)}
+                        loading={nominaCargando}
+                    >
+                        Agregar desde nómina
+                    </Button>
+                </div>
+            </div>
+
+            <div className="hhee-masivo">
+                <span className="hhee-masivo-titulo">Aplicar a todas las filas</span>
+                <Select
+                    placeholder="Motivo"
+                    value={masivoMotivo}
+                    onChange={setMasivoMotivo}
+                    allowClear
+                    options={motivos.map((m) => ({ value: m, label: m }))}
+                    style={{ minWidth: 180 }}
+                    aria-label="Motivo para todas las filas"
+                />
+                <TimePicker placeholder="Desde" value={masivoDesde} onChange={setMasivoDesde} format="HH:mm" minuteStep={5} aria-label="Desde para todas las filas" />
+                <TimePicker placeholder="Hasta" value={masivoHasta} onChange={setMasivoHasta} format="HH:mm" minuteStep={5} aria-label="Hasta para todas las filas" />
+                <Button onClick={aplicarATodas}>Aplicar</Button>
             </div>
 
             <div className="hhee-tabla-scroll">
@@ -271,25 +390,32 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
                                     <td>
                                         <AutoComplete
                                             value={fila.nombre}
-                                            options={opcionesUsuarios}
+                                            options={opcionesEmpleados}
                                             style={{ width: '100%' }}
                                             // Enter nunca pisa lo tipeado con una sugerencia: los operarios
-                                            // sin usuario en el sistema se cargan escribiendo el nombre libre.
+                                            // que no estén en la nómina se cargan escribiendo el nombre libre.
                                             defaultActiveFirstOption={false}
-                                            filterOption={(texto, option) => (option?.value || '').toLowerCase().includes(texto.toLowerCase())}
-                                            onSelect={(valor, opcion) => actualizarNombreFila(fila.key, valor, opcion?.id || null)}
+                                            filterOption={(texto, option) => (option?.value || '').toLowerCase().includes(texto.toLowerCase())
+                                                || (!!option?.legajo && String(option.legajo).includes(texto))}
+                                            onSelect={(valor, opcion) => actualizarNombreFila(fila.key, valor, opcion?.id || null, opcion?.legajo || null)}
                                             onChange={(valor) => {
-                                                // Si lo que quedó tipeado ya no coincide con el nombre
-                                                // del usuario vinculado, se desvincula (vuelve a ser texto libre).
-                                                const usuarioVinculado = usuarios.find((u) => u.id === fila.user_id);
-                                                const sigueVinculado = usuarioVinculado && usuarioVinculado.name === valor;
-                                                actualizarNombreFila(fila.key, valor, sigueVinculado ? fila.user_id : null);
+                                                // Si el texto cambió respecto del empleado elegido, se
+                                                // desvincula (vuelve a ser texto libre, sin legajo ni usuario).
+                                                // Se compara contra el estado más reciente (no el de este
+                                                // render) para no deshacer un onSelect que corrió antes.
+                                                setFilas((prev) => prev.map((f) => (f.key !== fila.key || f.nombre === valor
+                                                    ? f
+                                                    : { ...f, nombre: valor, user_id: null, legajo: null })));
                                             }}
                                         >
                                             <Input
                                                 placeholder="Elegí de la lista o escribí el nombre"
                                                 maxLength={150}
-                                                suffix={fila.user_id ? (
+                                                suffix={fila.legajo ? (
+                                                    <Tooltip title={`Nómina RRHH · legajo ${fila.legajo}`}>
+                                                        <IdcardOutlined className="hhee-input-icono-vinculado" />
+                                                    </Tooltip>
+                                                ) : fila.user_id ? (
                                                     <Tooltip title="Vinculado a un usuario del sistema">
                                                         <UserOutlined className="hhee-input-icono-vinculado" />
                                                     </Tooltip>
@@ -298,11 +424,13 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
                                         </AutoComplete>
                                     </td>
                                     <td>
-                                        <Input
+                                        <Select
                                             value={fila.motivo}
-                                            onChange={(e) => actualizarFila(fila.key, 'motivo', e.target.value)}
+                                            onChange={(valor) => actualizarFila(fila.key, 'motivo', valor)}
                                             placeholder="Motivo"
-                                            maxLength={500}
+                                            options={motivos.map((m) => ({ value: m, label: m }))}
+                                            status={fila.motivo && !motivos.includes(fila.motivo) ? 'error' : undefined}
+                                            style={{ width: '100%' }}
                                         />
                                     </td>
                                     <td style={{ textAlign: 'center' }}>
@@ -396,6 +524,20 @@ const ModalCrearSolicitudHhee = ({ open, onClose, solicitud, sectores = SECTORES
                     {guardando === 'enviar' ? 'Enviando...' : 'Enviar a aprobación'}
                 </button>
             </div>
+
+            <ModalNominaHhee
+                open={nominaOpen}
+                onClose={() => setNominaOpen(false)}
+                empleados={nomina.empleados}
+                cargando={nominaCargando}
+                disponible={nomina.disponible}
+                sectorSugerido={sector}
+                motivos={motivos}
+                legajosCargados={filas.map((f) => f.legajo)}
+                nombresCargados={filas.filter((f) => !f.legajo).map((f) => f.nombre)}
+                maxHorasPorEmpleado={maxHorasPorEmpleado}
+                onAgregar={agregarDesdeNomina}
+            />
         </Modal>
     );
 };

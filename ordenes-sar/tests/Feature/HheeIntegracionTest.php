@@ -54,7 +54,7 @@ class HheeIntegracionTest extends TestCase
     {
         return User::factory()->create(array_merge([
             'departamento_id' => $departamento->id,
-            'rol' => 'team_member',
+            'rol' => 'group_leader',
             'turno' => 'Turno Mañana',
         ], $overrides));
     }
@@ -73,7 +73,7 @@ class HheeIntegracionTest extends TestCase
     {
         return array_merge([
             'nombre' => 'Juan Pérez',
-            'motivo' => 'Refuerzo de turno',
+            'motivo' => 'Mantenimiento',
             'necesita_transporte' => false,
             'hora_desde' => '08:00',
             'hora_hasta' => '16:00',

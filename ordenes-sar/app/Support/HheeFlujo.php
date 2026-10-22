@@ -47,6 +47,7 @@ class HheeFlujo
 
     public static function crear(array $datos, User $usuario): SolicitudHhee
     {
+        self::validarPuedeCargar($usuario);
         self::validarDetalles($datos['detalles']);
 
         return DB::transaction(function () use ($datos, $usuario) {
@@ -87,6 +88,7 @@ class HheeFlujo
             ]);
         }
 
+        self::validarPuedeCargar($usuario);
         self::validarDetalles($datos['detalles']);
 
         return DB::transaction(function () use ($solicitud, $datos, $usuario) {
@@ -594,10 +596,21 @@ class HheeFlujo
     // =========================================================================
 
     /**
+     * Solo de group leader para arriba (o habilitados a mano) arman
+     * solicitudes. Ver App\Support\HheePermisos.
+     */
+    private static function validarPuedeCargar(User $usuario): void
+    {
+        if (!HheePermisos::puedeCargar($usuario)) {
+            throw new HheeAutorizacionException('No tiene permisos para cargar solicitudes de horas extras (solo group leader o superior).');
+        }
+    }
+
+    /**
      * Valida el horario+tope de CADA detalle (calcularHorasTeoricas()) y que
-     * no haya dos filas para el mismo empleado (mismo nombre normalizado) en
-     * la misma solicitud. Ya NO compara por legajo (se sacó del form): dos
-     * empleados sin legajo con el mismo nombre se consideran duplicados.
+     * no haya dos filas para el mismo empleado en la misma solicitud. Si la
+     * fila viene de la nómina (trae legajo) se compara por legajo; si se
+     * escribió a mano, por nombre normalizado.
      */
     private static function validarDetalles(array $detalles): void
     {
@@ -606,7 +619,10 @@ class HheeFlujo
         foreach ($detalles as $i => $detalle) {
             self::calcularHorasTeoricas($detalle, $i);
 
-            $clave = strtolower(trim($detalle['nombre']));
+            $legajo = trim((string) ($detalle['legajo'] ?? ''));
+            $clave = $legajo !== ''
+                ? 'legajo:' . $legajo
+                : 'nombre:' . mb_strtolower(trim($detalle['nombre']));
 
             if (isset($vistos[$clave])) {
                 throw ValidationException::withMessages([
@@ -621,7 +637,12 @@ class HheeFlujo
     private static function guardarDetalles(SolicitudHhee $solicitud, array $detalles): void
     {
         foreach ($detalles as $i => $detalle) {
+            $legajo = trim((string) ($detalle['legajo'] ?? ''));
+
             $solicitud->detalles()->create([
+                // Legajo de la nómina de RRHH (si el empleado se eligió de
+                // ahí); null si el nombre se escribió a mano.
+                'legajo' => $legajo !== '' ? $legajo : null,
                 'nombre' => $detalle['nombre'],
                 'user_id' => $detalle['user_id'] ?? null,
                 'motivo' => $detalle['motivo'],
