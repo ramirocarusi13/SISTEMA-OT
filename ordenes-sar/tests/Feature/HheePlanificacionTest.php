@@ -287,6 +287,74 @@ class HheePlanificacionTest extends TestCase
         $this->postJson('/api/hhee/planificaciones/no-existe/enviar')->assertStatus(404);
     }
 
+    // =========================================================================
+    // Integración con APP-RRHH (firma final de todos los días)
+    // =========================================================================
+
+    private function integracion(string $plan, string $accion, array $payload)
+    {
+        config(['hhee.integracion_key' => 'test-integracion-key-1234567890abcdef']);
+
+        return $this->withHeaders(['X-Integracion-Key' => 'test-integracion-key-1234567890abcdef'])
+            ->postJson("/api/hhee/integracion/planificaciones/{$plan}/{$accion}", $payload);
+    }
+
+    private function planPendienteFinal(): string
+    {
+        $plan = $this->planificar(['enviar' => true]);
+        Passport::actingAs($this->jefe);
+        $this->postJson("/api/hhee/planificaciones/{$plan}/aprobar")->assertStatus(200);
+
+        return $plan;
+    }
+
+    public function test_integracion_aprueba_todos_los_dias_con_marca_de_auditoria(): void
+    {
+        $plan = $this->planPendienteFinal();
+
+        $this->integracion($plan, 'aprobar', ['email_firmante' => $this->gerencia->email, 'comentario' => 'OK RRHH'])
+            ->assertStatus(200)
+            ->assertJson(['procesadas' => 10, 'omitidas' => 0]);
+
+        $this->assertSame(10, SolicitudHhee::where('estado', HheeEstados::APROBADA)->count());
+        $this->assertSame(10, \App\Models\AprobacionHhee::where('nivel', 2)->where('comentario', 'OK RRHH (vía APP-RRHH)')->count());
+    }
+
+    public function test_integracion_rechaza_todos_y_exige_motivo(): void
+    {
+        $plan = $this->planPendienteFinal();
+
+        $this->integracion($plan, 'rechazar', ['email_firmante' => $this->gerencia->email])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('motivo');
+
+        $this->integracion($plan, 'rechazar', ['email_firmante' => $this->gerencia->email, 'motivo' => 'Sin presupuesto'])
+            ->assertStatus(200)
+            ->assertJson(['procesadas' => 10]);
+
+        $this->assertSame(10, SolicitudHhee::where('estado', HheeEstados::RECHAZADA)->count());
+    }
+
+    public function test_integracion_firmante_sin_rol_da_422_y_desconocido_404(): void
+    {
+        $plan = $this->planPendienteFinal();
+
+        $this->integracion($plan, 'aprobar', ['email_firmante' => $this->gl->email])->assertStatus(422);
+        $this->integracion($plan, 'aprobar', ['email_firmante' => 'nadie@test.com'])->assertStatus(404);
+        $this->integracion('no-existe', 'aprobar', ['email_firmante' => $this->gerencia->email])->assertStatus(404);
+
+        $this->assertSame(10, SolicitudHhee::where('estado', HheeEstados::PENDIENTE_FINAL)->count());
+    }
+
+    public function test_integracion_sin_key_da_401(): void
+    {
+        $plan = $this->planPendienteFinal();
+        config(['hhee.integracion_key' => 'test-integracion-key-1234567890abcdef']);
+
+        $this->postJson("/api/hhee/integracion/planificaciones/{$plan}/aprobar", ['email_firmante' => $this->gerencia->email])
+            ->assertStatus(401);
+    }
+
     public function test_el_detalle_muestra_la_planificacion_y_las_acciones_disponibles(): void
     {
         $plan = $this->planificar(['enviar' => true]);

@@ -182,4 +182,7 @@ Route::prefix('hhee/integracion')
     ->group(function () {
         Route::post('/solicitudes/{id}/aprobar', [HheeIntegracionController::class, 'aprobar']);
         Route::post('/solicitudes/{id}/rechazar', [HheeIntegracionController::class, 'rechazar']);
+        // Todos los días de una planificación por rango de fechas de una vez.
+        Route::post('/planificaciones/{planificacionId}/aprobar', [HheeIntegracionController::class, 'aprobarPlanificacion']);
+        Route::post('/planificaciones/{planificacionId}/rechazar', [HheeIntegracionController::class, 'rechazarPlanificacion']);
     });

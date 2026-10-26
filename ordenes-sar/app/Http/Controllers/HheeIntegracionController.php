@@ -110,6 +110,64 @@ class HheeIntegracionController extends Controller
     }
 
     /**
+     * Firma TODOS los días de una planificación por rango de fechas en los
+     * que el firmante tiene la firma pendiente (los demás se saltean). Delega
+     * en App\Support\HheeFlujo::accionEnPlanificacion(), igual que
+     * SolicitudHheeController::accionPlanificacion(). Devuelve
+     * {procesadas, omitidas}.
+     */
+    public function aprobarPlanificacion(Request $request, string $planificacionId)
+    {
+        $validado = $request->validate([
+            'email_firmante' => 'required|email',
+            'comentario' => 'nullable|string|max:1000',
+        ]);
+
+        return $this->accionPlanificacion($validado, $planificacionId, 'aprobar', $validado['comentario'] ?? null);
+    }
+
+    public function rechazarPlanificacion(Request $request, string $planificacionId)
+    {
+        $validado = $request->validate([
+            'email_firmante' => 'required|email',
+            'motivo' => 'required|string|max:1000',
+        ]);
+
+        return $this->accionPlanificacion($validado, $planificacionId, 'rechazar', $validado['motivo']);
+    }
+
+    private function accionPlanificacion(array $validado, string $planificacionId, string $accion, ?string $texto)
+    {
+        $firmante = User::where('email', $validado['email_firmante'])->first();
+
+        if (!$firmante) {
+            return response()->json([
+                'error' => 'El firmante no existe como usuario del Sistema OT',
+            ], 404);
+        }
+
+        try {
+            $resultado = HheeFlujo::accionEnPlanificacion(
+                $planificacionId,
+                $accion,
+                $firmante,
+                $this->conSufijoIntegracion($texto)
+            );
+
+            return response()->json($resultado);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['error' => 'Planificación no encontrada'], 404);
+        } catch (HheeAutorizacionException $e) {
+            return response()->json(['error' => $e->getMessage()], 403);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error("Error (integración APP-RRHH) en '{$accion}' de la planificación HHEE: " . $e->getMessage());
+            return response()->json(['error' => 'Error procesando la planificación'], 500);
+        }
+    }
+
+    /**
      * Agrega el sufijo de auditoría sin superar el límite de 1000
      * caracteres de las columnas comentario (recorta la BASE, no el
      * sufijo, si hiciera falta). Si no viene texto (comentario opcional al
