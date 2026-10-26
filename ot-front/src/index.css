@@ -1355,6 +1355,95 @@
     font-size: 12px;
   }
 
+  /* Planificación por rango de fechas ("Varios días") */
+  .hhee-modo-fechas {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .hhee-modo-fechas-ayuda,
+  .hhee-planificacion-ayuda {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .hhee-planificacion-dias {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .hhee-planificacion-preview {
+    padding: 10px 12px;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    background: var(--surface-muted);
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .hhee-planificacion-preview--error {
+    border-color: #fca5a5;
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+
+  .hhee-planificacion-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .hhee-planificacion-acciones {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .hhee-planificacion-ayuda {
+    margin: 6px 0 10px;
+  }
+
+  .hhee-planificacion-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .hhee-planificacion-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #fff;
+    color: #1f2937;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .hhee-planificacion-chip:hover {
+    border-color: var(--primary);
+  }
+
+  .hhee-planificacion-chip--actual {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+    cursor: default;
+  }
+
+  .hhee-planificacion-chip .hhee-tag-inline {
+    margin: 0;
+  }
+
   .hhee-nomina-filtros {
     display: grid;
     grid-template-columns: 1fr 1fr;

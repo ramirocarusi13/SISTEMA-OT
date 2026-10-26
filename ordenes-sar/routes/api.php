@@ -125,6 +125,12 @@ Route::group(['middleware' => ['auth:api', 'cors', 'json.response', 'departament
         Route::post('/solicitudes/{id}/rechazar', [SolicitudHheeController::class, 'rechazar']);
         Route::post('/solicitudes/{id}/anular', [SolicitudHheeController::class, 'anular']);
         Route::post('/solicitudes/{id}/horas-reales', [SolicitudHheeController::class, 'horasReales']);
+
+        // Planificación por rango de fechas: una solicitud por día, mismo
+        // planificacion_id; acciones sobre todos los días de una vez.
+        Route::post('/planificaciones', [SolicitudHheeController::class, 'planificar']);
+        Route::post('/planificaciones/{planificacionId}/{accion}', [SolicitudHheeController::class, 'accionPlanificacion'])
+            ->where('accion', 'enviar|aprobar|rechazar|anular');
     });
 
     // -------------------------------------------------------------------

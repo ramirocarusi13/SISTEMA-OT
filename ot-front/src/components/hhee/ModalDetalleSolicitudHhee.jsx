@@ -10,8 +10,9 @@ import {
     enviarSolicitudHhee,
     aprobarSolicitudHhee,
     anularSolicitudHhee,
+    accionPlanificacionHhee,
 } from '../../Utils/hheeApi';
-import { getEstadoHheeInfo, formatearHoras, cruzaMedianocheHhee, horaCorta, iniciales, getSectoresHhee, getMotivosHhee, sectorOFallback } from '../../Utils/hhee';
+import { getEstadoHheeInfo, formatearHoras, cruzaMedianocheHhee, horaCorta, iniciales, getSectoresHhee, getMotivosHhee, sectorOFallback, fechaCortaConDia } from '../../Utils/hhee';
 import ModalCrearSolicitudHhee from './ModalCrearSolicitudHhee';
 import ModalRechazarSolicitudHhee from './ModalRechazarSolicitudHhee';
 import ModalHorasRealesHhee from './ModalHorasRealesHhee';
@@ -20,8 +21,22 @@ const { TextArea } = Input;
 
 const notificarCambio = () => window.dispatchEvent(new Event('hhee:actualizado'));
 
+// Acciones sobre todos los días de una planificación (ver
+// ordenes-sar SolicitudHheeController::accionPlanificacion()).
+const ACCIONES_LOTE = {
+    enviar: { boton: 'Enviar todos', titulo: 'Enviar todos los días a aprobación', ok: 'Sí, enviar', exito: 'enviados a aprobación' },
+    aprobar: { boton: 'Aprobar todos', titulo: 'Aprobar todos los días', ok: 'Confirmar aprobación', exito: 'aprobados' },
+    rechazar: { boton: 'Rechazar todos', titulo: 'Rechazar todos los días', ok: 'Rechazar', exito: 'rechazados', peligro: true },
+    anular: { boton: 'Anular todos', titulo: 'Anular todos los días', ok: 'Sí, anular', exito: 'anulados', peligro: true },
+};
+
 const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onChanged }) => {
+    // Id que se está mostrando: arranca en solicitudId, pero desde el bloque
+    // "Planificación" se puede saltar a otro día de la misma carga.
+    const [idVisible, setIdVisible] = useState(solicitudId);
     const [solicitud, setSolicitud] = useState(null);
+    const [accionLote, setAccionLote] = useState(null); // null | 'enviar' | 'aprobar' | 'rechazar' | 'anular'
+    const [textoLote, setTextoLote] = useState('');
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState(null);
 
@@ -32,18 +47,22 @@ const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onCh
     const [comentarioAprobar, setComentarioAprobar] = useState('');
     const [enviandoAccion, setEnviandoAccion] = useState(false);
 
+    useEffect(() => {
+        setIdVisible(solicitudId);
+    }, [solicitudId, open]);
+
     const cargarDetalle = useCallback(async () => {
-        if (!solicitudId) return;
+        if (!idVisible) return;
         setCargando(true);
         setError(null);
-        const { ok, data, error: err } = await fetchSolicitudHhee(solicitudId);
+        const { ok, data, error: err } = await fetchSolicitudHhee(idVisible);
         setCargando(false);
         if (ok) {
             setSolicitud(data);
         } else {
             setError(err || 'No se pudo cargar la solicitud.');
         }
-    }, [solicitudId]);
+    }, [idVisible]);
 
     useEffect(() => {
         if (open) {
@@ -115,9 +134,40 @@ const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onCh
         }
     };
 
+    const abrirAccionLote = (accion) => {
+        setTextoLote('');
+        setAccionLote(accion);
+    };
+
+    const confirmarAccionLote = async () => {
+        if (accionLote === 'rechazar' && !textoLote.trim()) {
+            message.error('Indicá el motivo del rechazo.');
+            return;
+        }
+        const payload = accionLote === 'rechazar'
+            ? { motivo: textoLote.trim() }
+            : accionLote === 'aprobar' && textoLote.trim() ? { comentario: textoLote.trim() } : {};
+
+        setEnviandoAccion(true);
+        const { ok, data, error: err } = await accionPlanificacionHhee(solicitud.planificacion.id, accionLote, payload);
+        setEnviandoAccion(false);
+
+        if (ok) {
+            const procesadas = data?.procesadas ?? 0;
+            const omitidas = data?.omitidas ?? 0;
+            message.success(`${procesadas} día${procesadas === 1 ? '' : 's'} ${ACCIONES_LOTE[accionLote].exito}`
+                + (omitidas ? ` (${omitidas} no correspondían y quedaron igual).` : '.'));
+            setAccionLote(null);
+            refrescarTodo();
+        } else {
+            message.error(err || 'No se pudo aplicar la acción a la planificación.');
+        }
+    };
+
     if (!open) return null;
 
     const flags = solicitud?.flags || {};
+    const planificacion = solicitud?.planificacion || null;
     const estadoInfo = solicitud ? getEstadoHheeInfo(catalogos?.estados, solicitud.estado) : null;
     const aprobacionNivel1 = (solicitud?.aprobaciones || []).find((a) => a.nivel === 1);
     const aprobacionNivel2 = (solicitud?.aprobaciones || []).find((a) => a.nivel === 2);
@@ -310,6 +360,51 @@ const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onCh
                             <Alert type="info" message={solicitud.observaciones} className="hhee-alert-estado" />
                         )}
 
+                        {planificacion && (
+                            <div className="hhee-card">
+                                <div className="hhee-planificacion-header">
+                                    <h3 className="hhee-seccion-titulo">
+                                        Planificación: {planificacion.total} día{planificacion.total === 1 ? '' : 's'}
+                                    </h3>
+                                    <div className="hhee-planificacion-acciones">
+                                        {Object.keys(ACCIONES_LOTE).map((accion) => (planificacion.acciones?.[accion] > 0 ? (
+                                            <button
+                                                key={accion}
+                                                type="button"
+                                                className={ACCIONES_LOTE[accion].peligro ? 'danger-action' : 'primary-action'}
+                                                onClick={() => abrirAccionLote(accion)}
+                                                disabled={enviandoAccion}
+                                            >
+                                                {ACCIONES_LOTE[accion].boton} ({planificacion.acciones[accion]})
+                                            </button>
+                                        ) : null))}
+                                    </div>
+                                </div>
+                                <p className="hhee-planificacion-ayuda">
+                                    Cada día es una solicitud con su propia firma y su carga de horas reales. Tocá un día para verlo.
+                                </p>
+                                <div className="hhee-planificacion-chips">
+                                    {planificacion.dias.map((dia) => {
+                                        const info = getEstadoHheeInfo(catalogos?.estados, dia.estado);
+                                        const actual = dia.id === solicitud.id;
+                                        return (
+                                            <button
+                                                key={dia.id}
+                                                type="button"
+                                                className={`hhee-planificacion-chip${actual ? ' hhee-planificacion-chip--actual' : ''}`}
+                                                onClick={() => !actual && setIdVisible(dia.id)}
+                                                aria-current={actual ? 'true' : undefined}
+                                                title={`Solicitud N° ${dia.id} · ${info.label}`}
+                                            >
+                                                <span>{fechaCortaConDia(dia.fecha_hhee)}</span>
+                                                <Tag color={info.color} className="hhee-tag-inline">{info.label}</Tag>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         <div className="hhee-card">
                             <h3 className="hhee-seccion-titulo">Empleados</h3>
                             <Table
@@ -415,6 +510,42 @@ const ModalDetalleSolicitudHhee = ({ open, solicitudId, catalogos, onClose, onCh
                         onChange={(e) => setComentarioAprobar(e.target.value)}
                     />
                 </div>
+            </Modal>
+
+            <Modal
+                title={accionLote ? ACCIONES_LOTE[accionLote].titulo : ''}
+                open={!!accionLote}
+                onCancel={() => setAccionLote(null)}
+                onOk={confirmarAccionLote}
+                okText={accionLote ? ACCIONES_LOTE[accionLote].ok : 'Aceptar'}
+                okButtonProps={{ danger: !!(accionLote && ACCIONES_LOTE[accionLote].peligro) }}
+                cancelText="Cancelar"
+                confirmLoading={enviandoAccion}
+            >
+                {accionLote && planificacion && (
+                    <>
+                        <p>
+                            Se va a aplicar a <strong>{planificacion.acciones?.[accionLote]} de {planificacion.total} días</strong> de
+                            esta planificación (los demás no corresponden: ya firmados, de otro nivel o cerrados).
+                            {accionLote === 'enviar' && ' Una vez enviados no se podrán editar.'}
+                            {accionLote === 'anular' && ' Esta acción no se puede deshacer.'}
+                        </p>
+                        {(accionLote === 'aprobar' || accionLote === 'rechazar') && (
+                            <div className="form-field">
+                                <label className="form-label" htmlFor="hhee-texto-lote">
+                                    {accionLote === 'rechazar' ? 'Motivo del rechazo' : 'Comentario (opcional)'}
+                                </label>
+                                <TextArea
+                                    id="hhee-texto-lote"
+                                    rows={3}
+                                    maxLength={1000}
+                                    value={textoLote}
+                                    onChange={(e) => setTextoLote(e.target.value)}
+                                />
+                            </div>
+                        )}
+                    </>
+                )}
             </Modal>
 
             {solicitud && (

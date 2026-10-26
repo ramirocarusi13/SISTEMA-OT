@@ -14,22 +14,36 @@
 // suma de una vez a todos los empleados tildados de un sector con el mismo
 // motivo y horario; "Aplicar a todas las filas" pisa motivo/horario de toda
 // la tabla. El motivo es un desplegable fijo (catalogos.motivos).
+//
+// Varios días ("desde/hasta"): solo al crear. Se elige un rango y los días de
+// la semana y el backend genera una solicitud por día con este mismo personal,
+// motivo y horario, todas en una misma planificación (ver
+// ordenes-sar/app/Support/HheeFlujo.php::planificar()). Después se pueden
+// enviar/firmar/anular todos los días juntos desde el detalle.
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, DatePicker, Select, Input, Switch, TimePicker, Button, AutoComplete, Tooltip, message } from 'antd';
+import { Modal, DatePicker, Select, Input, Switch, TimePicker, Button, AutoComplete, Tooltip, Radio, Checkbox, message } from 'antd';
 import { PlusOutlined, DeleteOutlined, UserOutlined, TeamOutlined, IdcardOutlined } from '@ant-design/icons';
 import moment from 'moment';
-import { crearSolicitudHhee, actualizarSolicitudHhee, fetchNominaHhee } from '../../Utils/hheeApi';
+import { crearSolicitudHhee, actualizarSolicitudHhee, fetchNominaHhee, planificarHhee } from '../../Utils/hheeApi';
 import {
     calcularHoras,
     cruzaMedianocheHhee,
     formatearHoras,
     horaCorta,
+    fechasPlanificadasHhee,
+    fechaCortaConDia,
+    DIAS_SEMANA_HHEE,
     SECTORES_HHEE_FALLBACK,
     MOTIVOS_HHEE_FALLBACK,
 } from '../../Utils/hhee';
 import ModalNominaHhee from './ModalNominaHhee';
 
 const { TextArea } = Input;
+const { RangePicker } = DatePicker;
+
+const DIAS_HABILES = [1, 2, 3, 4, 5];
+// Cuántas fechas se listan en la vista previa antes de resumir con "y N más".
+const FECHAS_VISTA_PREVIA = 12;
 
 let contadorFilas = 0;
 const nuevaFilaVacia = () => ({
@@ -70,10 +84,15 @@ const ModalCrearSolicitudHhee = ({
     motivos = MOTIVOS_HHEE_FALLBACK,
     usuarios = [],
     maxHorasPorEmpleado = 12,
+    maxDiasPlanificacion = 62,
     onSuccess,
 }) => {
     const esEdicion = !!solicitud;
     const [fechaHhee, setFechaHhee] = useState(null);
+    // 'unica' = una solicitud para un día; 'rango' = planificación desde/hasta.
+    const [modoFechas, setModoFechas] = useState('unica');
+    const [rango, setRango] = useState(null); // [desde, hasta] (moment)
+    const [diasSemana, setDiasSemana] = useState(DIAS_HABILES);
     const [sector, setSector] = useState(null);
     const [turno, setTurno] = useState('');
     const [observaciones, setObservaciones] = useState('');
@@ -126,10 +145,19 @@ const ModalCrearSolicitudHhee = ({
             setObservaciones('');
             setFilas([nuevaFilaVacia()]);
         }
+        setModoFechas('unica');
+        setRango(null);
+        setDiasSemana(DIAS_HABILES);
         setMasivoMotivo(null);
         setMasivoDesde(null);
         setMasivoHasta(null);
     }, [open, solicitud]);
+
+    const esRango = !esEdicion && modoFechas === 'rango';
+    const fechasRango = useMemo(
+        () => (esRango ? fechasPlanificadasHhee(rango?.[0], rango?.[1], diasSemana, maxDiasPlanificacion) : []),
+        [esRango, rango, diasSemana, maxDiasPlanificacion]
+    );
 
     const actualizarFila = (key, campo, valor) => {
         setFilas((prev) => prev.map((fila) => (fila.key === key ? { ...fila, [campo]: valor } : fila)));
@@ -193,7 +221,14 @@ const ModalCrearSolicitudHhee = ({
     );
 
     const validar = () => {
-        if (!fechaHhee) return 'Debe indicar la fecha de la solicitud.';
+        if (esRango) {
+            if (!rango?.[0] || !rango?.[1]) return 'Indicá el rango de fechas (desde y hasta).';
+            if (!diasSemana.length) return 'Elegí al menos un día de la semana.';
+            if (fechasRango.length === 0) return 'Ningún día del rango coincide con los días de la semana elegidos.';
+            if (fechasRango.length > maxDiasPlanificacion) return `El rango genera más de ${maxDiasPlanificacion} días. Achicá el rango.`;
+        } else if (!fechaHhee) {
+            return 'Debe indicar la fecha de la solicitud.';
+        }
         if (!sector) return 'Debe seleccionar un sector.';
         if (filas.length === 0) return 'Debe agregar al menos un empleado.';
 
@@ -215,7 +250,13 @@ const ModalCrearSolicitudHhee = ({
     };
 
     const construirPayload = (enviar) => ({
-        fecha_hhee: fechaHhee.format('YYYY-MM-DD'),
+        ...(esRango
+            ? {
+                fecha_desde: rango[0].format('YYYY-MM-DD'),
+                fecha_hasta: rango[1].format('YYYY-MM-DD'),
+                dias_semana: diasSemana,
+            }
+            : { fecha_hhee: fechaHhee.format('YYYY-MM-DD') }),
         sector,
         turno: turno || null,
         observaciones: observaciones || null,
@@ -243,11 +284,20 @@ const ModalCrearSolicitudHhee = ({
         const payload = construirPayload(enviar);
         const resultado = esEdicion
             ? await actualizarSolicitudHhee(solicitud.id, payload)
-            : await crearSolicitudHhee(payload);
+            : esRango
+                ? await planificarHhee(payload)
+                : await crearSolicitudHhee(payload);
         setGuardando(null);
 
         if (resultado.ok) {
-            message.success(enviar ? 'Solicitud enviada a aprobación.' : 'Borrador guardado.');
+            if (esRango) {
+                const total = resultado.data?.total ?? fechasRango.length;
+                message.success(enviar
+                    ? `Se enviaron a aprobación ${total} solicitudes (una por día).`
+                    : `Se guardaron ${total} borradores (uno por día).`);
+            } else {
+                message.success(enviar ? 'Solicitud enviada a aprobación.' : 'Borrador guardado.');
+            }
             window.dispatchEvent(new Event('hhee:actualizado'));
             onSuccess?.(resultado.data);
             onClose();
@@ -259,7 +309,9 @@ const ModalCrearSolicitudHhee = ({
     const confirmarEnvio = () => {
         Modal.confirm({
             title: 'Enviar a aprobación',
-            content: 'Una vez enviada, la solicitud no se podrá editar. ¿Confirma el envío?',
+            content: esRango
+                ? `Se van a crear y enviar ${fechasRango.length} solicitudes, una por día. Una vez enviadas no se podrán editar. ¿Confirma el envío?`
+                : 'Una vez enviada, la solicitud no se podrá editar. ¿Confirma el envío?',
             okText: 'Sí, enviar',
             cancelText: 'Cancelar',
             onOk: () => enviarFormulario(true),
@@ -278,17 +330,51 @@ const ModalCrearSolicitudHhee = ({
             destroyOnClose
         >
             <div className="hhee-card">
-            <div className="hhee-form-grid">
-                <div className="form-field">
-                    <label className="form-label" htmlFor="hhee-fecha">Fecha prevista</label>
-                    <DatePicker
-                        id="hhee-fecha"
-                        value={fechaHhee}
-                        onChange={setFechaHhee}
-                        format="DD/MM/YYYY"
-                        style={{ width: '100%' }}
+            {!esEdicion && (
+                <div className="hhee-modo-fechas">
+                    <Radio.Group
+                        value={modoFechas}
+                        onChange={(e) => setModoFechas(e.target.value)}
+                        optionType="button"
+                        buttonStyle="solid"
+                        options={[
+                            { value: 'unica', label: 'Un día' },
+                            { value: 'rango', label: 'Varios días (desde / hasta)' },
+                        ]}
+                        aria-label="Cantidad de días"
                     />
+                    {esRango && (
+                        <span className="hhee-modo-fechas-ayuda">
+                            Se crea una solicitud por día con los mismos empleados y horario.
+                        </span>
+                    )}
                 </div>
+            )}
+            <div className="hhee-form-grid">
+                {esRango ? (
+                    <div className="form-field">
+                        <label className="form-label" htmlFor="hhee-rango">Desde / hasta</label>
+                        <RangePicker
+                            id="hhee-rango"
+                            value={rango}
+                            onChange={setRango}
+                            format="DD/MM/YYYY"
+                            placeholder={['Desde', 'Hasta']}
+                            style={{ width: '100%' }}
+                        />
+                    </div>
+                ) : (
+                    <div className="form-field">
+                        <label className="form-label" htmlFor="hhee-fecha">Fecha prevista</label>
+                        <DatePicker
+                            id="hhee-fecha"
+                            value={fechaHhee}
+                            onChange={setFechaHhee}
+                            format="DD/MM/YYYY"
+                            style={{ width: '100%' }}
+                        />
+                    </div>
+                )}
 
                 <div className="form-field">
                     <label className="form-label" htmlFor="hhee-sector">Sector</label>
@@ -313,6 +399,34 @@ const ModalCrearSolicitudHhee = ({
                     />
                 </div>
             </div>
+
+            {esRango && (
+                <div className="hhee-planificacion-dias">
+                    <div className="form-field">
+                        <span className="form-label">Días de la semana</span>
+                        <Checkbox.Group
+                            options={DIAS_SEMANA_HHEE}
+                            value={diasSemana}
+                            onChange={(valores) => setDiasSemana([...valores].sort((a, b) => a - b))}
+                        />
+                    </div>
+                    <div className={`hhee-planificacion-preview${fechasRango.length > maxDiasPlanificacion ? ' hhee-planificacion-preview--error' : ''}`}>
+                        {fechasRango.length === 0 ? (
+                            'Elegí el rango y los días para ver qué fechas se van a cargar.'
+                        ) : fechasRango.length > maxDiasPlanificacion ? (
+                            `El rango genera más de ${maxDiasPlanificacion} días (el máximo por planificación). Achicá el rango.`
+                        ) : (
+                            <>
+                                <strong>
+                                    {fechasRango.length} día{fechasRango.length === 1 ? '' : 's'}:
+                                </strong>{' '}
+                                {fechasRango.slice(0, FECHAS_VISTA_PREVIA).map(fechaCortaConDia).join(' · ')}
+                                {fechasRango.length > FECHAS_VISTA_PREVIA && ` · y ${fechasRango.length - FECHAS_VISTA_PREVIA} más`}
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
 
             <div className="form-field" style={{ marginTop: 12 }}>
                 <label className="form-label" htmlFor="hhee-observaciones">Observaciones</label>
@@ -499,7 +613,11 @@ const ModalCrearSolicitudHhee = ({
 
             <div className="hhee-total-general">
                 <span>{filas.length} empleado{filas.length === 1 ? '' : 's'}</span>
-                <strong>Total: {formatearHoras(totalGeneral)} h</strong>
+                <strong>
+                    {esRango && fechasRango.length > 0 && fechasRango.length <= maxDiasPlanificacion
+                        ? `Total: ${formatearHoras(totalGeneral)} h por día · ${formatearHoras(totalGeneral * fechasRango.length)} h en ${fechasRango.length} días`
+                        : `Total: ${formatearHoras(totalGeneral)} h`}
+                </strong>
             </div>
             </div>
 
@@ -513,7 +631,7 @@ const ModalCrearSolicitudHhee = ({
                     onClick={() => enviarFormulario(false)}
                     disabled={guardando !== null}
                 >
-                    {guardando === 'borrador' ? 'Guardando...' : 'Guardar borrador'}
+                    {guardando === 'borrador' ? 'Guardando...' : esRango ? 'Guardar borradores' : 'Guardar borrador'}
                 </button>
                 <button
                     type="button"

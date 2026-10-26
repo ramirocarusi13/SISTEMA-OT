@@ -19,6 +19,9 @@ class HheePendienteFirmaMail extends Mailable
     public SolicitudHhee $solicitud;
     public User $actor;
     public int $nivel;
+    // Aviso único de una planificación por rango de fechas (ver
+    // App\Support\HheeNotificador::agrupar()); null en una solicitud suelta.
+    public ?string $nota = null;
 
     public function __construct(SolicitudHhee $solicitud, User $actor, int $nivel)
     {

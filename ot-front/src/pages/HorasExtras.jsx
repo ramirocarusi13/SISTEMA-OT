@@ -205,7 +205,16 @@ const HorasExtras = () => {
                 title: 'Fecha',
                 dataIndex: 'fecha_hhee',
                 key: 'fecha_hhee',
-                render: (v) => (v ? moment(v).format('DD/MM/YYYY') : '—'),
+                render: (v, r) => (
+                    <span>
+                        {v ? moment(v).format('DD/MM/YYYY') : '—'}
+                        {r.planificacion_id && (
+                            <Tag color="geekblue" className="hhee-tag-inline" title="Parte de una planificación de varios días">
+                                Planificada
+                            </Tag>
+                        )}
+                    </span>
+                ),
             },
             { title: 'Sector', key: 'sector', render: (_, r) => sectorOFallback(r) },
             { title: 'Turno', dataIndex: 'turno', key: 'turno', render: (v) => v || '—' },
@@ -390,6 +399,7 @@ const HorasExtras = () => {
                 motivos={getMotivosHhee(catalogos)}
                 usuarios={catalogos?.usuarios || []}
                 maxHorasPorEmpleado={catalogos?.max_horas_por_empleado}
+                maxDiasPlanificacion={catalogos?.max_dias_planificacion}
                 onClose={() => setModalCrearOpen(false)}
                 onSuccess={() => {
                     setModalCrearOpen(false);

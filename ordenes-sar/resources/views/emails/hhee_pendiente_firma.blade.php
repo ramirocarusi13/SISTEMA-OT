@@ -8,6 +8,9 @@
 <body>
     <h1>Tenés una solicitud de HHEE pendiente de tu firma</h1>
     <p>La solicitud <strong>HHEE #{{ $solicitud->id }}</strong> está pendiente de tu firma ({{ $etiquetaNivel }}).</p>
+    @if (!empty($nota))
+        <p><strong>{{ $nota }}</strong> Podés firmar todos los días juntos desde el detalle de la solicitud.</p>
+    @endif
     <p><strong>Solicitante:</strong> {{ $solicitud->solicitante->name ?? 'N/D' }}</p>
     <p><strong>Departamento:</strong> {{ $solicitud->departamento->nombre ?? 'N/D' }}</p>
     <p><strong>Fecha HHEE:</strong> {{ optional($solicitud->fecha_hhee)->format('d-m-Y') }}</p>

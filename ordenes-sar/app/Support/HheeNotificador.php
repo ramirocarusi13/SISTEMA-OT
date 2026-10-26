@@ -31,8 +31,73 @@ use Illuminate\Support\Collection;
  */
 class HheeNotificador
 {
+    // Agrupado de avisos para las acciones sobre una planificación por rango
+    // de fechas (ver agrupar()).
+    private static bool $agrupando = false;
+    /** @var array<string, \Closure> primer aviso de cada tipo, a repetir al final */
+    private static array $diferidas = [];
+    private static ?string $nota = null;
+
+    /**
+     * Ejecuta $accion juntando los avisos: en vez de un aviso (campana + mail)
+     * por cada solicitud de una planificación, se manda UNO solo por tipo
+     * (el de la primera solicitud), con el texto de $nota($resultado)
+     * agregado (ej. "Planificación de 20 días, del ... al ..."). Así un
+     * aprobador no recibe 20 mails por una carga de 20 días.
+     */
+    public static function agrupar(\Closure $accion, \Closure $nota)
+    {
+        if (self::$agrupando) {
+            return $accion();
+        }
+
+        self::$agrupando = true;
+        self::$diferidas = [];
+
+        try {
+            $resultado = $accion();
+            $diferidas = self::$diferidas;
+        } finally {
+            self::$agrupando = false;
+            self::$diferidas = [];
+        }
+
+        if ($diferidas) {
+            self::$nota = $nota($resultado);
+
+            try {
+                foreach ($diferidas as $notificar) {
+                    $notificar();
+                }
+            } finally {
+                self::$nota = null;
+            }
+        }
+
+        return $resultado;
+    }
+
+    /**
+     * Dentro de agrupar(): guarda el primer aviso de cada tipo y devuelve
+     * true (el caller no notifica ahora). Fuera de agrupar(): false.
+     */
+    private static function diferir(string $tipo, \Closure $notificar): bool
+    {
+        if (!self::$agrupando) {
+            return false;
+        }
+
+        self::$diferidas[$tipo] ??= $notificar;
+
+        return true;
+    }
+
     public static function notificarEnviada(SolicitudHhee $solicitud, User $actor, string $estadoAnterior): void
     {
+        if (self::diferir('notificarEnviada', fn () => self::notificarEnviada($solicitud, $actor, $estadoAnterior))) {
+            return;
+        }
+
         $aprobadoresN1 = HheeAprobadores::aprobadoresDeNivel(1, $solicitud->departamento_id);
 
         self::campana($aprobadoresN1, $actor, $solicitud, self::mensajePendiente($solicitud, 1), $estadoAnterior);
@@ -49,6 +114,10 @@ class HheeNotificador
 
     public static function notificarAprobadaNivel1(SolicitudHhee $solicitud, User $actor, bool $esContingencia, string $estadoAnterior): void
     {
+        if (self::diferir('notificarAprobadaNivel1', fn () => self::notificarAprobadaNivel1($solicitud, $actor, $esContingencia, $estadoAnterior))) {
+            return;
+        }
+
         $aprobadoresN2 = HheeAprobadores::aprobadoresDeNivel(2, $solicitud->departamento_id);
 
         self::campana($aprobadoresN2, $actor, $solicitud, self::mensajePendiente($solicitud, 2), $estadoAnterior, $esContingencia);
@@ -66,6 +135,10 @@ class HheeNotificador
 
     public static function notificarAprobadaFinal(SolicitudHhee $solicitud, User $actor, bool $esContingencia, string $estadoAnterior): void
     {
+        if (self::diferir('notificarAprobadaFinal', fn () => self::notificarAprobadaFinal($solicitud, $actor, $esContingencia, $estadoAnterior))) {
+            return;
+        }
+
         $solicitante = collect([$solicitud->solicitante]);
 
         self::campana(
@@ -93,6 +166,10 @@ class HheeNotificador
 
     public static function notificarRechazada(SolicitudHhee $solicitud, User $actor, bool $esContingencia, string $estadoAnterior): void
     {
+        if (self::diferir('notificarRechazada', fn () => self::notificarRechazada($solicitud, $actor, $esContingencia, $estadoAnterior))) {
+            return;
+        }
+
         $solicitante = collect([$solicitud->solicitante]);
 
         self::campana(
@@ -124,6 +201,10 @@ class HheeNotificador
 
     public static function notificarAnulada(SolicitudHhee $solicitud, User $actor, string $estadoAnterior): void
     {
+        if (self::diferir('notificarAnulada', fn () => self::notificarAnulada($solicitud, $actor, $estadoAnterior))) {
+            return;
+        }
+
         $nivelPendiente = match ($estadoAnterior) {
             HheeEstados::PENDIENTE_NIVEL1 => 1,
             HheeEstados::PENDIENTE_FINAL => 2,
@@ -149,6 +230,10 @@ class HheeNotificador
 
     public static function notificarCerrada(SolicitudHhee $solicitud, User $actor, string $estadoAnterior): void
     {
+        if (self::diferir('notificarCerrada', fn () => self::notificarCerrada($solicitud, $actor, $estadoAnterior))) {
+            return;
+        }
+
         $rolCierre = config('hhee.rol_notificacion_cierre', 'rrhh');
 
         $idsDestinatarios = HheeRolAprobacion::where('rol', $rolCierre)->where('activo', true)->pluck('user_id')->unique();
@@ -214,6 +299,10 @@ class HheeNotificador
     ): void {
         $mensajeFinal = $esContingencia ? "{$mensaje} (firma por contingencia)" : $mensaje;
 
+        if (self::$nota) {
+            $mensajeFinal = "{$mensajeFinal} " . self::$nota;
+        }
+
         self::destinatariosUnicos($destinatarios, $actor)->each(function (User $destinatario) use ($actor, $solicitud, $mensajeFinal, $estadoAnterior) {
             Notificacion::create([
                 'orden_trabajo_id' => null,
@@ -239,12 +328,19 @@ class HheeNotificador
      */
     private static function mail(Collection $destinatarios, User $actor, \Closure $fabricaMailable): void
     {
-        self::destinatariosUnicos($destinatarios, $actor)->each(function (User $destinatario) use ($fabricaMailable) {
+        $nota = self::$nota;
+
+        self::destinatariosUnicos($destinatarios, $actor)->each(function (User $destinatario) use ($fabricaMailable, $nota) {
             if (!$destinatario->email) {
                 return;
             }
 
-            SendHheeMailJob::dispatch($destinatario->email, $fabricaMailable($destinatario))->afterCommit();
+            $mailable = $fabricaMailable($destinatario);
+            if ($nota && property_exists($mailable, 'nota')) {
+                $mailable->nota = $nota;
+            }
+
+            SendHheeMailJob::dispatch($destinatario->email, $mailable)->afterCommit();
         });
     }
 

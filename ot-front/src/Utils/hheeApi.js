@@ -53,6 +53,25 @@ export function crearSolicitudHhee(payload) {
     });
 }
 
+// POST /api/hhee/planificaciones { fecha_desde, fecha_hasta, dias_semana[1..7], sector, turno, observaciones, enviar, detalles }
+// -> { planificacion_id, total, solicitudes: [{id, fecha_hhee, estado}] }
+// Carga de antemano por rango de fechas: una solicitud por día.
+export function planificarHhee(payload) {
+    return apiFetch('hhee/planificaciones', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+// POST /api/hhee/planificaciones/{id}/{accion} (accion: enviar | aprobar | rechazar | anular)
+// payload: { comentario? } para aprobar, { motivo } para rechazar. -> { procesadas, omitidas }
+export function accionPlanificacionHhee(planificacionId, accion, payload = {}) {
+    return apiFetch(`hhee/planificaciones/${planificacionId}/${accion}`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
 // PUT /api/hhee/solicitudes/{id} (solo borradores propios, ver flags.puede_editar)
 export function actualizarSolicitudHhee(id, payload) {
     return apiFetch(`hhee/solicitudes/${id}`, {

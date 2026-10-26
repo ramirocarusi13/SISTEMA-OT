@@ -119,6 +119,44 @@ export function getMotivosHhee(catalogos) {
     return catalogos?.motivos?.length ? catalogos.motivos : MOTIVOS_HHEE_FALLBACK;
 }
 
+// Días de la semana para la planificación por rango (ISO: 1 = lunes ... 7 = domingo,
+// igual que dias_semana del backend).
+export const DIAS_SEMANA_HHEE = [
+    { value: 1, label: 'Lun' },
+    { value: 2, label: 'Mar' },
+    { value: 3, label: 'Mié' },
+    { value: 4, label: 'Jue' },
+    { value: 5, label: 'Vie' },
+    { value: 6, label: 'Sáb' },
+    { value: 7, label: 'Dom' },
+];
+
+/**
+ * Fechas (moment) del rango [desde, hasta] que caen en los días de la semana
+ * elegidos. Espejo de App\Support\HheeFlujo::fechasPlanificadas() solo para
+ * mostrar la vista previa; las fechas que valen las calcula el backend.
+ * Se corta en `tope + 1` para no iterar de más con rangos enormes.
+ */
+export function fechasPlanificadasHhee(desde, hasta, diasSemana, tope = 62) {
+    if (!desde || !hasta || !diasSemana?.length) return [];
+    // El RangePicker de antd 5 devuelve dayjs (inmutable); se pasa todo a
+    // moment por el string para iterar igual venga lo que venga.
+    const dia = moment(desde.format('YYYY-MM-DD'), 'YYYY-MM-DD');
+    const fin = moment(hasta.format('YYYY-MM-DD'), 'YYYY-MM-DD');
+    const fechas = [];
+    while (!dia.isAfter(fin, 'day') && fechas.length <= tope) {
+        if (diasSemana.includes(dia.isoWeekday())) fechas.push(dia.clone());
+        dia.add(1, 'day');
+    }
+    return fechas;
+}
+
+/** "Lun 03/11" (sin depender del locale de moment). */
+export function fechaCortaConDia(fecha) {
+    const m = moment(fecha);
+    return `${DIAS_SEMANA_HHEE[m.isoWeekday() - 1].label} ${m.format('DD/MM')}`;
+}
+
 /**
  * Normaliza un texto para comparar sin mayúsculas ni acentos
  * ("Administración" == "administracion").

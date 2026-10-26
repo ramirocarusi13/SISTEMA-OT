@@ -21,6 +21,9 @@ class HheeEstadoCambiadoMail extends Mailable
     public string $estadoNuevo;
     public bool $esContingencia;
     public ?string $motivoRechazo;
+    // Aviso único de una planificación por rango de fechas (ver
+    // App\Support\HheeNotificador::agrupar()); null en una solicitud suelta.
+    public ?string $nota = null;
 
     public function __construct(
         SolicitudHhee $solicitud,

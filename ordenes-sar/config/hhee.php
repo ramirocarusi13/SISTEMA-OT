@@ -134,6 +134,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Planificación por rango de fechas ("desde/hasta")
+    |--------------------------------------------------------------------------
+    |
+    | Para cargar HHEE de antemano: se elige un rango y los días de la semana
+    | y se genera una solicitud por día (mismo personal, motivo y horario),
+    | todas con el mismo planificacion_id. Tope de días por planificación para
+    | no generar cientos de solicitudes por error. Ver
+    | App\Support\HheeFlujo::planificar().
+    |
+    */
+
+    'max_dias_planificacion' => (int) env('HHEE_MAX_DIAS_PLANIFICACION', 62),
+
+    /*
+    |--------------------------------------------------------------------------
     | Nómina (APP-RRHH, solo lectura)
     |--------------------------------------------------------------------------
     |

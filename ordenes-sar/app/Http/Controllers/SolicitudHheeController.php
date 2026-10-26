@@ -60,6 +60,7 @@ class SolicitudHheeController extends Controller
             'mis_niveles' => HheeAprobadores::nivelesGenerales($user),
             'es_contingencia' => HheeAprobadores::tieneRolContingenciaActivo($user),
             'max_horas_por_empleado' => (float) config('hhee.max_horas_por_empleado'),
+            'max_dias_planificacion' => (int) config('hhee.max_dias_planificacion', 62),
             'departamentos' => Departamento::query()->select('id', 'nombre')->orderBy('nombre')->get(),
             'usuarios' => User::query()->select('id', 'name', 'departamento_id')->orderBy('name')->get(),
         ]);
@@ -100,6 +101,7 @@ class SolicitudHheeController extends Controller
             'departamento_id' => 'nullable|integer|exists:departamentos,id',
             'sector' => ['nullable', 'string', Rule::in(config('hhee.sectores'))],
             'solicitante_id' => 'nullable|integer|exists:users,id',
+            'planificacion_id' => 'nullable|string|max:36',
             'solo_pendientes_mias' => 'nullable|boolean',
             'per_page' => 'nullable|integer|min:1|max:100',
         ]);
@@ -136,6 +138,10 @@ class SolicitudHheeController extends Controller
 
             if (!empty($filtros['solicitante_id'])) {
                 $query->where('solicitante_id', $filtros['solicitante_id']);
+            }
+
+            if (!empty($filtros['planificacion_id'])) {
+                $query->where('planificacion_id', $filtros['planificacion_id']);
             }
 
             if ($request->boolean('solo_pendientes_mias')) {
@@ -205,6 +211,7 @@ class SolicitudHheeController extends Controller
 
             $data = $solicitud->toArray();
             $data['flags'] = $this->flags($solicitud, $user);
+            $data['planificacion'] = $this->resumenPlanificacion($solicitud, $user);
 
             return response()->json($data);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
@@ -230,6 +237,66 @@ class SolicitudHheeController extends Controller
         } catch (\Exception $e) {
             Log::error('Error creando la solicitud HHEE: ' . $e->getMessage());
             return response()->json(['error' => 'Error creando la solicitud'], 500);
+        }
+    }
+
+    /**
+     * POST /hhee/planificaciones: carga de antemano para un rango de fechas
+     * ("desde/hasta" + días de la semana). Crea una solicitud por día, todas
+     * con el mismo planificacion_id. Con enviar=true las manda a aprobación.
+     */
+    public function planificar(Request $request)
+    {
+        $validado = $this->validarPayloadPlanificacion($request);
+
+        try {
+            $solicitudes = HheeFlujo::planificar($validado, auth()->user());
+
+            return response()->json([
+                'planificacion_id' => $solicitudes[0]->planificacion_id,
+                'total' => count($solicitudes),
+                'solicitudes' => collect($solicitudes)->map(fn (SolicitudHhee $s) => [
+                    'id' => $s->id,
+                    'fecha_hhee' => $s->fecha_hhee->toDateString(),
+                    'estado' => $s->estado,
+                ])->values(),
+            ], 201);
+        } catch (HheeAutorizacionException $e) {
+            return response()->json(['error' => $e->getMessage()], 403);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('Error creando la planificación HHEE: ' . $e->getMessage());
+            return response()->json(['error' => 'Error creando la planificación'], 500);
+        }
+    }
+
+    /**
+     * POST /hhee/planificaciones/{planificacionId}/{accion}: enviar, aprobar
+     * ({comentario?}), rechazar ({motivo}) o anular TODOS los días de la
+     * planificación en los que el usuario puede hacerlo. Devuelve
+     * {procesadas, omitidas}.
+     */
+    public function accionPlanificacion(Request $request, string $planificacionId, string $accion)
+    {
+        $validado = $request->validate([
+            'comentario' => 'nullable|string|max:1000',
+            'motivo' => ($accion === 'rechazar' ? 'required' : 'nullable') . '|string|max:1000',
+        ]);
+
+        $texto = $accion === 'rechazar' ? ($validado['motivo'] ?? null) : ($validado['comentario'] ?? null);
+
+        try {
+            return response()->json(HheeFlujo::accionEnPlanificacion($planificacionId, $accion, auth()->user(), $texto));
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['error' => 'Planificación no encontrada'], 404);
+        } catch (HheeAutorizacionException $e) {
+            return response()->json(['error' => $e->getMessage()], 403);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error("Error en la acción '{$accion}' de la planificación HHEE: " . $e->getMessage());
+            return response()->json(['error' => 'Error procesando la planificación'], 500);
         }
     }
 
@@ -410,8 +477,31 @@ class SolicitudHheeController extends Controller
      */
     private function validarPayload(Request $request): array
     {
-        return $request->validate([
-            'fecha_hhee' => 'required|date',
+        return $request->validate(array_merge(
+            ['fecha_hhee' => 'required|date'],
+            $this->reglasComunes()
+        ));
+    }
+
+    /**
+     * Reglas de POST /hhee/planificaciones: igual que una solicitud suelta
+     * pero con un rango de fechas + días de la semana (ISO 1=lunes..7=domingo)
+     * en vez de una sola fecha. Ver App\Support\HheeFlujo::planificar().
+     */
+    private function validarPayloadPlanificacion(Request $request): array
+    {
+        return $request->validate(array_merge([
+            'fecha_desde' => 'required|date',
+            'fecha_hasta' => 'required|date|after_or_equal:fecha_desde',
+            'dias_semana' => 'required|array|min:1|max:7',
+            'dias_semana.*' => 'integer|between:1,7',
+        ], $this->reglasComunes()));
+    }
+
+    /** Cabecera (sin fecha) + empleados: comunes a solicitud y planificación. */
+    private function reglasComunes(): array
+    {
+        return [
             'sector' => ['required', 'string', Rule::in(config('hhee.sectores'))],
             'turno' => 'nullable|string|max:50',
             'observaciones' => 'nullable|string|max:1000',
@@ -440,7 +530,41 @@ class SolicitudHheeController extends Controller
             // hora_desde/hora_hasta (ver App\Support\HheeFlujo::
             // calcularHorasTeoricas()), cruza_medianoche se infiere solo del
             // horario (ver HheeFlujo::cruzaMedianoche()).
-        ]);
+        ];
+    }
+
+    /**
+     * Resumen de la planificación a la que pertenece la solicitud (null si es
+     * de un solo día): los días con su estado y en cuántos puede el usuario
+     * enviar/aprobar/rechazar/anular de una vez (botones "todos los días").
+     */
+    private function resumenPlanificacion(SolicitudHhee $solicitud, User $user): ?array
+    {
+        if (!$solicitud->planificacion_id) {
+            return null;
+        }
+
+        $dias = SolicitudHhee::where('planificacion_id', $solicitud->planificacion_id)
+            ->withCount('detalles')
+            ->orderBy('fecha_hhee')
+            ->orderBy('id')
+            ->get();
+
+        $acciones = [];
+        foreach (HheeFlujo::ACCIONES_PLANIFICACION as $accion) {
+            $acciones[$accion] = $dias->filter(fn (SolicitudHhee $s) => HheeFlujo::puedeAccion($s, $accion, $user))->count();
+        }
+
+        return [
+            'id' => $solicitud->planificacion_id,
+            'total' => $dias->count(),
+            'dias' => $dias->map(fn (SolicitudHhee $s) => [
+                'id' => $s->id,
+                'fecha_hhee' => $s->fecha_hhee->toDateString(),
+                'estado' => $s->estado,
+            ])->values(),
+            'acciones' => $acciones,
+        ];
     }
 
     /**
@@ -452,10 +576,7 @@ class SolicitudHheeController extends Controller
         $esSolicitante = (int) $solicitud->solicitante_id === (int) $user->id;
         $esBorrador = $solicitud->estado === HheeEstados::BORRADOR;
         $nivelPendiente = HheeFlujo::nivelPendiente($solicitud);
-
-        $puedeFirmar = $nivelPendiente !== null
-            && (config('hhee.permitir_autoaprobacion', false) || !$esSolicitante)
-            && in_array($nivelPendiente, HheeAprobadores::nivelesQuePuedeFirmar($user, $solicitud), true);
+        $puedeFirmar = HheeFlujo::puedeFirmar($solicitud, $user);
 
         return [
             'puede_editar' => $esBorrador && $esSolicitante,

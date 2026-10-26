@@ -8,6 +8,7 @@ use App\Models\SolicitudHhee;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -61,6 +62,9 @@ class HheeFlujo
                 'turno' => $datos['turno'] ?? null,
                 'observaciones' => $datos['observaciones'] ?? null,
                 'estado' => HheeEstados::BORRADOR,
+                // Solo lo setea planificar() (el payload de store() no lo
+                // acepta): agrupa las solicitudes de un mismo rango de fechas.
+                'planificacion_id' => $datos['planificacion_id'] ?? null,
             ]);
 
             self::guardarDetalles($solicitud, $datos['detalles']);
@@ -116,6 +120,203 @@ class HheeFlujo
 
             return $solicitud->fresh(['detalles']);
         });
+    }
+
+    // =========================================================================
+    // Planificación por rango de fechas ("desde/hasta")
+    // =========================================================================
+
+    /** Acciones que se pueden aplicar a toda una planificación de una vez. */
+    public const ACCIONES_PLANIFICACION = ['enviar', 'aprobar', 'rechazar', 'anular'];
+
+    /**
+     * Carga HHEE de antemano para varios días: genera UNA solicitud por cada
+     * fecha del rango [fecha_desde, fecha_hasta] que caiga en dias_semana
+     * (ISO: 1 = lunes ... 7 = domingo), todas con el mismo personal, motivo y
+     * horario, y el mismo planificacion_id. Cada solicitud sigue su circuito
+     * normal (firmas, horas reales) por separado; lo que se agrupa son las
+     * notificaciones (un solo aviso por planificación, ver
+     * HheeNotificador::agrupar()). Todo o nada: si falla un día, no se crea
+     * ninguno.
+     *
+     * @return SolicitudHhee[] ordenadas por fecha
+     */
+    public static function planificar(array $datos, User $usuario): array
+    {
+        self::validarPuedeCargar($usuario);
+        self::validarDetalles($datos['detalles']);
+
+        $fechas = self::fechasPlanificadas($datos['fecha_desde'], $datos['fecha_hasta'], $datos['dias_semana']);
+        $planificacionId = (string) Str::uuid();
+
+        return DB::transaction(fn () => HheeNotificador::agrupar(
+            function () use ($datos, $usuario, $fechas, $planificacionId) {
+                $creadas = [];
+
+                foreach ($fechas as $fecha) {
+                    $creadas[] = self::crear(array_merge($datos, [
+                        'fecha_hhee' => $fecha,
+                        'planificacion_id' => $planificacionId,
+                    ]), $usuario);
+                }
+
+                return $creadas;
+            },
+            fn (array $creadas) => self::notaPlanificacion($creadas)
+        ));
+    }
+
+    /**
+     * Fechas (Y-m-d) del rango que caen en los días de la semana pedidos
+     * (ISO 1..7). 422 si no queda ninguna o si superan
+     * config('hhee.max_dias_planificacion').
+     */
+    public static function fechasPlanificadas(string $desde, string $hasta, array $diasSemana): array
+    {
+        $inicio = Carbon::parse($desde)->startOfDay();
+        $fin = Carbon::parse($hasta)->startOfDay();
+        $max = (int) config('hhee.max_dias_planificacion', 62);
+        $dias = array_map('intval', $diasSemana);
+
+        if ($fin->lt($inicio)) {
+            throw ValidationException::withMessages([
+                'fecha_hasta' => 'La fecha "hasta" no puede ser anterior a la fecha "desde".',
+            ]);
+        }
+
+        // Corte por rango antes de iterar: aunque se pida un solo día de la
+        // semana, un rango de años no tiene sentido para planificar HHEE.
+        if ($inicio->diffInDays($fin) > $max * 7) {
+            throw ValidationException::withMessages([
+                'fecha_hasta' => 'El rango de fechas es demasiado largo para una planificación.',
+            ]);
+        }
+
+        $fechas = [];
+        for ($dia = $inicio->copy(); $dia->lte($fin); $dia->addDay()) {
+            if (in_array($dia->dayOfWeekIso, $dias, true)) {
+                $fechas[] = $dia->toDateString();
+            }
+        }
+
+        if (count($fechas) === 0) {
+            throw ValidationException::withMessages([
+                'dias_semana' => 'No hay ningún día del rango que coincida con los días de la semana elegidos.',
+            ]);
+        }
+
+        if (count($fechas) > $max) {
+            throw ValidationException::withMessages([
+                'fecha_hasta' => 'La planificación genera ' . count($fechas) . " días y el máximo es {$max}. Achicá el rango.",
+            ]);
+        }
+
+        return $fechas;
+    }
+
+    /**
+     * Aplica una acción (enviar/aprobar/rechazar/anular) a TODAS las
+     * solicitudes de la planificación en las que $usuario puede hacerla
+     * (las demás se saltean: ya firmadas, de otro nivel, terminales...). Todo
+     * o nada, con un solo aviso por tipo de notificación.
+     *
+     * @return array{procesadas:int, omitidas:int}
+     */
+    public static function accionEnPlanificacion(string $planificacionId, string $accion, User $usuario, ?string $texto = null): array
+    {
+        if (!in_array($accion, self::ACCIONES_PLANIFICACION, true)) {
+            throw ValidationException::withMessages(['accion' => 'Acción inválida.']);
+        }
+
+        if ($accion === 'rechazar' && trim((string) $texto) === '') {
+            throw ValidationException::withMessages(['motivo' => 'Indicá el motivo del rechazo.']);
+        }
+
+        $solicitudes = SolicitudHhee::where('planificacion_id', $planificacionId)
+            ->withCount('detalles')
+            ->orderBy('fecha_hhee')
+            ->orderBy('id')
+            ->get();
+
+        if ($solicitudes->isEmpty()) {
+            throw (new \Illuminate\Database\Eloquent\ModelNotFoundException())->setModel(SolicitudHhee::class);
+        }
+
+        $elegibles = $solicitudes->filter(fn (SolicitudHhee $s) => self::puedeAccion($s, $accion, $usuario))->values();
+
+        if ($elegibles->isEmpty()) {
+            throw ValidationException::withMessages([
+                'planificacion' => 'No hay días de esta planificación en los que puedas ' . $accion . '.',
+            ]);
+        }
+
+        DB::transaction(fn () => HheeNotificador::agrupar(
+            function () use ($elegibles, $accion, $usuario, $texto) {
+                foreach ($elegibles as $solicitud) {
+                    match ($accion) {
+                        'enviar' => self::enviar($solicitud, $usuario),
+                        'aprobar' => self::aprobar($solicitud, $usuario, $texto),
+                        'rechazar' => self::rechazar($solicitud, $usuario, (string) $texto),
+                        'anular' => self::anular($solicitud, $usuario),
+                    };
+                }
+
+                return $elegibles->all();
+            },
+            fn (array $procesadas) => self::notaPlanificacion($procesadas)
+        ));
+
+        return [
+            'procesadas' => $elegibles->count(),
+            'omitidas' => $solicitudes->count() - $elegibles->count(),
+        ];
+    }
+
+    /**
+     * Si $usuario puede hacer $accion sobre $solicitud ahora mismo. Misma
+     * regla que los flags del detalle (SolicitudHheeController::flags()).
+     */
+    public static function puedeAccion(SolicitudHhee $solicitud, string $accion, User $usuario): bool
+    {
+        $esSolicitante = (int) $solicitud->solicitante_id === (int) $usuario->id;
+
+        return match ($accion) {
+            'enviar' => $esSolicitante
+                && $solicitud->estado === HheeEstados::BORRADOR
+                && ($solicitud->detalles_count ?? $solicitud->detalles()->count()) > 0,
+            'aprobar', 'rechazar' => self::puedeFirmar($solicitud, $usuario),
+            'anular' => $esSolicitante && !HheeEstados::esTerminal($solicitud->estado),
+            default => false,
+        };
+    }
+
+    /** Si $usuario puede firmar (aprobar/rechazar) el nivel pendiente. */
+    public static function puedeFirmar(SolicitudHhee $solicitud, User $usuario): bool
+    {
+        $nivel = self::nivelPendiente($solicitud);
+        $esSolicitante = (int) $solicitud->solicitante_id === (int) $usuario->id;
+
+        return $nivel !== null
+            && (config('hhee.permitir_autoaprobacion', false) || !$esSolicitante)
+            && in_array($nivel, HheeAprobadores::nivelesQuePuedeFirmar($usuario, $solicitud), true);
+    }
+
+    /**
+     * Texto que se agrega al aviso único de una planificación, ej.
+     * "Planificación de 20 días, del 03/11/2026 al 28/11/2026."
+     *
+     * @param SolicitudHhee[] $solicitudes
+     */
+    private static function notaPlanificacion(array $solicitudes): string
+    {
+        $fechas = collect($solicitudes)->map(fn ($s) => Carbon::parse($s->fecha_hhee))->sort()->values();
+        $cantidad = $fechas->count();
+
+        if ($cantidad === 1) {
+            return 'Planificación: 1 día (' . $fechas->first()->format('d/m/Y') . ').';
+        }
+
+        return "Planificación de {$cantidad} días, del {$fechas->first()->format('d/m/Y')} al {$fechas->last()->format('d/m/Y')}.";
     }
 
     // =========================================================================

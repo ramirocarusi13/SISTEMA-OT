@@ -37,6 +37,9 @@ class SolicitudHhee extends Model
         'fecha_rechazo',
         'rechazado_por_id',
         'motivo_rechazo',
+        // uuid compartido por las solicitudes de una misma planificación
+        // por rango de fechas (null = solicitud de un solo día).
+        'planificacion_id',
     ];
 
     protected $casts = [

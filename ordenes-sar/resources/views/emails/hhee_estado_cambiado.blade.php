@@ -9,6 +9,9 @@
     <h1>Hola, {{ $solicitud->solicitante->name ?? '' }}</h1>
     <p>Te informamos que tu solicitud de HHEE <strong>#{{ $solicitud->id }}</strong> cambió de estado.</p>
     <p><strong>Nuevo estado:</strong> {{ $estadoNuevo }}</p>
+    @if (!empty($nota))
+        <p><strong>{{ $nota }}</strong> El cambio aplica a todos esos días.</p>
+    @endif
 
     @if ($motivoRechazo)
         <p><strong>Motivo del rechazo:</strong> {{ $motivoRechazo }}</p>
