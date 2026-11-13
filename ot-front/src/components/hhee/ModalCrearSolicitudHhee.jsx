@@ -320,11 +320,37 @@ const ModalCrearSolicitudHhee = ({
 
     const totalGeneral = filas.reduce((acc, fila) => acc + (horasDeFila(fila) || 0), 0);
 
+    // El modal solo se cierra con la X o "Cancelar" (nunca con click afuera ni
+    // Esc), y si ya hay algo cargado pide confirmación: al cerrar se pierde
+    // todo lo que no se guardó.
+    const hayDatosCargados = !!(
+        fechaHhee || rango || sector || turno.trim() || observaciones.trim()
+        || filas.some((fila) => !filaEnBlanco(fila))
+    );
+
+    const cerrar = () => {
+        if (guardando !== null) return;
+        if (!hayDatosCargados) {
+            onClose();
+            return;
+        }
+        Modal.confirm({
+            title: esEdicion ? '¿Descartar los cambios?' : '¿Descartar la solicitud?',
+            content: 'Lo que cargaste no está guardado y se va a perder.',
+            okText: 'Sí, descartar',
+            okButtonProps: { danger: true },
+            cancelText: 'Seguir cargando',
+            onOk: onClose,
+        });
+    };
+
     return (
         <Modal
             title={esEdicion ? `Editar solicitud N° ${solicitud.id}` : 'Nueva solicitud de horas extras'}
             open={open}
-            onCancel={onClose}
+            onCancel={cerrar}
+            maskClosable={false}
+            keyboard={false}
             footer={null}
             width={1080}
             destroyOnClose
@@ -343,11 +369,6 @@ const ModalCrearSolicitudHhee = ({
                         ]}
                         aria-label="Cantidad de días"
                     />
-                    {esRango && (
-                        <span className="hhee-modo-fechas-ayuda">
-                            Se crea una solicitud por día con los mismos empleados y horario.
-                        </span>
-                    )}
                 </div>
             )}
             <div className="hhee-form-grid">
@@ -410,10 +431,9 @@ const ModalCrearSolicitudHhee = ({
                             onChange={(valores) => setDiasSemana([...valores].sort((a, b) => a - b))}
                         />
                     </div>
+                    {fechasRango.length > 0 && (
                     <div className={`hhee-planificacion-preview${fechasRango.length > maxDiasPlanificacion ? ' hhee-planificacion-preview--error' : ''}`}>
-                        {fechasRango.length === 0 ? (
-                            'Elegí el rango y los días para ver qué fechas se van a cargar.'
-                        ) : fechasRango.length > maxDiasPlanificacion ? (
+                        {fechasRango.length > maxDiasPlanificacion ? (
                             `El rango genera más de ${maxDiasPlanificacion} días (el máximo por planificación). Achicá el rango.`
                         ) : (
                             <>
@@ -425,6 +445,7 @@ const ModalCrearSolicitudHhee = ({
                             </>
                         )}
                     </div>
+                    )}
                 </div>
             )}
 
@@ -622,7 +643,7 @@ const ModalCrearSolicitudHhee = ({
             </div>
 
             <div className="modal-actions">
-                <button type="button" className="secondary-action" onClick={onClose}>
+                <button type="button" className="secondary-action" onClick={cerrar}>
                     Cancelar
                 </button>
                 <button
